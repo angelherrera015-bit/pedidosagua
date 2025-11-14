@@ -4,9 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AGUA CRISTAL ZONA 6 - Registro de Pedidos</title>
-    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { 
@@ -40,7 +38,7 @@
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         
         // ******************************************************************************
-        // * INSTRUCCIÓN IMPORTANTE: PEGAR CONFIGURACIÓN DE FIREBASE AQUÍ.              *
+        // * INSTRUCCIÓN IMPORTANTE: PEGAR CONFIGURACIÓN DE FIREBASE AQUÍ.              *
         // * Reemplace el contenido de este objeto con su configuración de Firebase real. *
         // ******************************************************************************
         const FIREBASE_CONFIG_FALLBACK = {
@@ -125,13 +123,14 @@
                 }
             }
         };
+        window.showView = showView; // Exponer al global
 
         // --- MODAL DE ALERTA/CONFIRMACIÓN ---
         
         let confirmAction = null;
 
         // CAMBIO: Definiendo showModal en window
-        window.showModal = (title, message, isError, onConfirm = null) => {
+        window.showModal = (title, message, isError, onConfirm = null, customConfirmText = 'Confirmar') => {
             const modalTitle = document.getElementById('modal-title');
             const modalMessage = document.getElementById('modal-message');
             const modalConfirmBtn = document.getElementById('modal-confirm-btn');
@@ -139,14 +138,15 @@
             const modalCloseBtn = document.getElementById('modal-close-btn');
 
             modalTitle.textContent = title;
-            modalMessage.textContent = message;
+            modalMessage.innerHTML = message; // Usar innerHTML por si hay un enlace de WhatsApp
 
             if (onConfirm) {
                 confirmAction = onConfirm;
                 modalConfirmBtn.style.display = 'inline-flex';
                 modalCancelBtn.style.display = 'inline-flex';
                 modalCloseBtn.style.display = 'none';
-                modalConfirmBtn.textContent = 'Confirmar';
+                modalConfirmBtn.textContent = customConfirmText;
+                modalConfirmBtn.className = 'px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition';
             } else {
                 confirmAction = null;
                 modalConfirmBtn.style.display = 'none';
@@ -188,10 +188,8 @@
             try {
                 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
                 if (initialAuthToken) {
-                    // Si hay un token de entorno, úsalo.
                     await window.signInWithCustomToken(window.auth, initialAuthToken);
                 } else {
-                    // Si no, inicia sesión de forma anónima para poder usar Firestore.
                     await window.signInAnonymously(window.auth);
                 }
             } catch (error) {
@@ -207,7 +205,6 @@
                 currentUserId = user.uid;
 
                 if (currentUserRole) {
-                    // Si el rol ya fue establecido por login(), mostramos la vista principal.
                     document.getElementById('welcome-message').textContent = `¡Bienvenido, ${currentUserRole}!`;
                     document.getElementById('user-info').textContent = `Usuario: ${currentUserRole} | ID de Sesión: ${currentUserId.substring(0, 8)}...`;
                     
@@ -218,7 +215,6 @@
                     }
                     showView('main');
                 } else {
-                    // Si es solo una sesión anónima o inicial sin rol, mostramos login.
                     showView('login');
                 }
             } else {
@@ -228,7 +224,7 @@
             }
         });
         
-        // Función de inicio de sesión (CORRECCIÓN: Eliminamos signInWithCustomToken para roles)
+        // Función de inicio de sesión
         const login = async () => {
             if (!window.auth) {
                 window.showModal('Error Crítico', 'La aplicación no se inicializó. Recargue la página o revise la configuración de Firebase.', true);
@@ -239,23 +235,19 @@
             const pass = document.getElementById('login-pass').value;
 
             if (window.USER_PROFILES[user] === pass) {
-                // Autenticación exitosa con credenciales locales
                 currentUserRole = user; 
                 
-                // NOTA: Ya no usamos signInWithCustomToken aquí, sino que confiamos en 
-                // la sesión anónima (establecida en handleAuth) para la conexión a Firestore, 
-                // y el rol lo manejamos internamente.
-                
-                // Disparar un cambio de estado para actualizar la UI internamente
-                // Usamos un pequeño timeout para dar tiempo a que onAuthStateChanged se asegure de la conexión.
                 setTimeout(() => {
-                    // Forzar el cambio de vista, ya que onAuthStateChanged no se dispara sin un cambio de Auth real.
                     if(window.auth.currentUser) {
                         document.getElementById('welcome-message').textContent = `¡Bienvenido, ${currentUserRole}!`;
                         document.getElementById('user-info').textContent = `Usuario: ${currentUserRole} | ID de Sesión: ${window.auth.currentUser.uid.substring(0, 8)}...`;
                         showView('main');
+                        // Forzar actualización de UI de admin si ya estamos en una vista relevante
+                        if (currentUserRole === 'ADMINISTRADOR') {
+                           const adminButton = document.getElementById('export-csv-btn');
+                           if (adminButton) adminButton.style.display = 'inline-block';
+                        }
                     } else {
-                        // Fallback si no hay usuario de Firebase (raro, pero seguro)
                         window.showModal('Error de Conexión', 'Credenciales correctas, pero no se pudo establecer la conexión a Firestore.', true);
                     }
                 }, 100); 
@@ -267,8 +259,11 @@
 
         // Asignar funciones globales para los eventos onclick en el HTML generado
         window.login = login;
-
-        // --- RESTO DE LA LÓGICA DE LA APLICACIÓN (NO MODIFICADA EN ESTA CORRECCIÓN) ---
+        window.currentUserRole = currentUserRole; // Exponer el rol para el script del final
+        window.unsubscribeOrders = unsubscribeOrders;
+        window.loadOrdersRealtime = loadOrdersRealtime;
+        
+        // --- RESTO DE LA LÓGICA DE LA APLICACIÓN ---
 
         // Lógica del Formulario
         
@@ -278,6 +273,7 @@
             document.getElementById('form-title').textContent = `NUEVO PEDIDO ${type === 'DOMICILIO' ? 'A DOMICILIO (Q.10.00)' : 'ENTREGA FÍSICA (Q.9.00)'}`;
             orderForm.reset();
             document.getElementById('quantity').value = 1; // Default a 1
+            document.getElementById('whatsapp-link').style.display = 'none'; // Ocultar link de whatsapp
             updateTotal();
             document.getElementById('autofill-status').textContent = '';
             showView('form');
@@ -351,6 +347,13 @@
                 console.error("Error al guardar cliente:", e);
             }
         };
+        
+        // Función para generar link de WhatsApp
+        const generateWhatsAppLink = (name, quantity, total, address, isEditing) => {
+            const action = isEditing ? "actualizado" : "registrado";
+            const message = `¡Hola ${name}!\n\nTu pedido de AGUA CRISTAL ZONA 6 ha sido ${action} exitosamente.\n\n💧 Cantidad: ${quantity} garrafón(es).\n💰 Total: Q.${total.toFixed(2)}.\n📍 Dirección: ${address}.\n\n¡Gracias por tu compra!`;
+            return `https://wa.me/502${phoneInput.value.trim()}?text=${encodeURIComponent(message)}`;
+        };
 
         // Guardar Pedido
         const saveOrder = async (e) => {
@@ -373,6 +376,7 @@
             const now = Timestamp.now();
             const price = currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
             const total = (quantity * price);
+            const isEditing = !!currentEditingOrderId;
 
             const orderData = {
                 phone,
@@ -390,14 +394,24 @@
             };
 
             try {
-                if (currentEditingOrderId) {
+                if (isEditing) {
                     // Editar pedido existente
                     await updateDoc(doc(getOrdersCollectionRef(), currentEditingOrderId), orderData);
                     window.showModal('Pedido Actualizado', 'El pedido ha sido actualizado correctamente.', false);
                 } else {
                     // Nuevo pedido
                     await addDoc(getOrdersCollectionRef(), orderData);
-                    window.showModal('Pedido Registrado', `Se ha registrado el pedido por Q.${total.toFixed(2)}.`, false);
+                    
+                    // --- RE-IMPLEMENTACIÓN DEL MENSAJE AUTOMÁTICO DE WHATSAPP ---
+                    const whatsappLink = generateWhatsAppLink(name, quantity, total, address, isEditing);
+                    
+                    window.showModal(
+                        'Pedido Registrado', 
+                        `<p>Se ha registrado el pedido por Q.${total.toFixed(2)}.</p><p class="mt-4 font-semibold">¿Desea enviar un mensaje de confirmación por WhatsApp?</p>`, 
+                        false, 
+                        () => window.open(whatsappLink, '_blank'),
+                        'Enviar WhatsApp'
+                    );
                 }
                 
                 orderForm.reset();
@@ -419,6 +433,7 @@
             showView('panel');
             loadOrdersRealtime();
         };
+        window.openControlPanel = openControlPanel; // Exponer al global
 
         const loadOrdersRealtime = () => {
             const ordersRef = getOrdersCollectionRef();
@@ -436,11 +451,14 @@
             // Consultar solo los pedidos de la fecha seleccionada
             const q = query(ordersRef, where('date', '==', selectedDate));
 
+            if (unsubscribeOrders) {
+                unsubscribeOrders(); // Limpiar el listener anterior antes de crear uno nuevo
+            }
+
             unsubscribeOrders = onSnapshot(q, (snapshot) => {
                 let totalVentas = 0;
                 orderList.innerHTML = '';
                 
-                // Usamos fragmento para un mejor rendimiento
                 const fragment = document.createDocumentFragment();
 
                 snapshot.docs.forEach(docSnapshot => {
@@ -460,6 +478,7 @@
                 console.error("Error al escuchar pedidos en tiempo real:", error);
                 window.showModal('Error de Conexión', 'No se pudieron cargar los pedidos en tiempo real.', true);
             });
+            window.unsubscribeOrders = unsubscribeOrders;
         };
 
         // Función para ordenar los elementos en el DOM (simulando orderBy)
@@ -476,9 +495,6 @@
 
         // Listener para el filtro de fecha
         document.getElementById('date-filter').addEventListener('change', () => {
-            if (unsubscribeOrders) {
-                unsubscribeOrders();
-            }
             loadOrdersRealtime(); // Recargar datos con la nueva fecha
         });
         
@@ -490,50 +506,51 @@
                 ? order.timestamp.toDate().toISOString() 
                 : new Date().toISOString(); 
             
+            row.setAttribute('data-id', id); // Para editar/eliminar
             row.setAttribute('data-timestamp', timestamp); 
 
             const isAdmin = currentUserRole === 'ADMINISTRADOR';
             const time = new Date(timestamp).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' });
             
-            // Columna de Estado (Checkbox)
-            let statusCell;
+            // Columna de Estado (Checkbox) - Solución del problema de check
+            const tdStatus = document.createElement('td');
+            tdStatus.className = 'p-3 text-center';
+            
             if (order.type === 'DOMICILIO') {
-                // Crear el checkbox como un elemento real
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
                 checkbox.className = 'w-5 h-5 text-teal-600 bg-gray-100 border-gray-300 rounded focus:ring-teal-500';
                 checkbox.checked = order.isDelivered;
                 checkbox.disabled = !isAdmin; // Solo el admin puede cambiar el estado
+
+                // CORRECCIÓN CLAVE: Agregar el listener directamente al elemento
                 checkbox.addEventListener('change', () => toggleDeliveredStatus(id, checkbox.checked));
-                
-                // Contenedor para el checkbox
-                const td = document.createElement('td');
-                td.className = 'p-3 text-center';
-                td.appendChild(checkbox);
-                statusCell = td.outerHTML; // Obtener el HTML para la inserción
+                tdStatus.appendChild(checkbox);
             } else {
-                statusCell = `<td class="p-3 text-center"><span class="text-sm font-semibold text-teal-600">N/A</span></td>`;
+                tdStatus.innerHTML = `<span class="text-sm font-semibold text-teal-600">N/A</span>`;
             }
 
-            // Columna de Acciones
-            let actionsCell = '';
+            // Columna de Acciones - Solución del problema de editar/borrar
+            const tdActions = document.createElement('td');
+            tdActions.className = 'p-3 whitespace-nowrap text-right space-x-2';
+            
             if (isAdmin) {
-                // Sanitizar el objeto 'order' para pasarlo a la función onclick 
-                const sanitizedOrder = JSON.stringify(order).replace(/'/g, "&#39;");
+                // Botón Editar
+                const editBtn = document.createElement('button');
+                editBtn.className = 'text-blue-600 hover:text-blue-800 font-medium text-xs p-1 rounded-full hover:bg-blue-100 transition';
+                editBtn.innerHTML = '<svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-7-3l2.828-2.828a1 1 0 011.414 0L19 11m-9 9h.01M15 5v.01"></path></svg>';
+                editBtn.onclick = () => window.editOrder(id, order);
 
-                actionsCell = `
-                    <td class="p-3 whitespace-nowrap text-right space-x-2">
-                        <button onclick='window.editOrder("${id}", ${sanitizedOrder})' 
-                                class="text-blue-600 hover:text-blue-800 font-medium text-xs p-1 rounded-full hover:bg-blue-100 transition">
-                            <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-7-3l2.828-2.828a1 1 0 011.414 0L19 11m-9 9h.01M15 5v.01"></path></svg>
-                        </button>
-                        <button onclick="window.deleteOrder('${id}', '${order.name}')" 
-                                class="text-red-600 hover:text-red-800 font-medium text-xs p-1 rounded-full hover:bg-red-100 transition">
-                            <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                        </button>
-                    </td>`;
+                // Botón Eliminar
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'text-red-600 hover:text-red-800 font-medium text-xs p-1 rounded-full hover:bg-red-100 transition';
+                deleteBtn.innerHTML = '<svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>';
+                deleteBtn.onclick = () => window.deleteOrder(id, order.name);
+
+                tdActions.appendChild(editBtn);
+                tdActions.appendChild(deleteBtn);
             } else {
-                actionsCell = `<td class="p-3 text-center text-gray-400">---</td>`;
+                tdActions.innerHTML = `<span class="p-3 text-center text-gray-400">---</span>`;
             }
 
             row.innerHTML = `
@@ -543,16 +560,11 @@
                 <td class="p-3 text-sm text-gray-700">${order.type === 'DOMICILIO' ? 'A Domicilio' : 'Entrega Física'}</td>
                 <td class="p-3 text-sm text-gray-700">${order.nit}</td>
                 <td class="p-3 text-sm font-bold text-teal-600 text-right">Q.${order.total.toFixed(2)}</td>
-                ${statusCell}
-                ${actionsCell}
             `;
-            // Necesitamos re-agregar el listener al checkbox después de que se inserta el HTML del td
-            if (order.type === 'DOMICILIO') {
-                const checkboxElement = row.querySelector('input[type="checkbox"]');
-                if (checkboxElement) {
-                     checkboxElement.addEventListener('change', () => toggleDeliveredStatus(id, checkboxElement.checked));
-                }
-            }
+
+            // Insertar celdas de DOM creadas dinámicamente
+            row.appendChild(tdStatus);
+            row.appendChild(tdActions);
             
             return row;
         };
@@ -567,11 +579,12 @@
             document.getElementById('client-phone').value = order.phone;
             document.getElementById('client-name').value = order.name;
             document.getElementById('quantity').value = order.quantity;
-            // Aseguramos que NIT 'CF' se muestre como vacío para que el usuario pueda editarlo
             document.getElementById('client-nit').value = order.nit === 'CF' ? '' : order.nit; 
             document.getElementById('client-address').value = order.address;
             
-            // Actualizar el tipo de pedido para que la función updateTotal sepa qué precio usar
+            // Ocultar el link de WhatsApp ya que estamos editando
+            document.getElementById('whatsapp-link').style.display = 'none';
+
             updateTotal(); 
             showView('form');
         };
@@ -579,7 +592,6 @@
         window.deleteOrder = async (id, name) => {
             if (currentUserRole !== 'ADMINISTRADOR') return;
 
-            // Usar modal de confirmación en lugar de alert/confirm
             window.showModal('Confirmar Eliminación', `¿Está seguro que desea eliminar el pedido de ${name}?`, true, 
                 async () => {
                     try {
@@ -596,30 +608,29 @@
         const toggleDeliveredStatus = async (id, isDelivered) => {
             if (currentUserRole !== 'ADMINISTRADOR') return;
             try {
+                // CORRECCIÓN: Usar updateDoc con el ID del documento
                 await updateDoc(doc(getOrdersCollectionRef(), id), { isDelivered });
             } catch (e) {
                 console.error("Error al actualizar estado de entrega:", e);
                 window.showModal('Error', 'No se pudo actualizar el estado de entrega.', true);
             }
         };
+        window.toggleDeliveredStatus = toggleDeliveredStatus; // Exponer al global
 
         // --- EXPORTAR A CSV (ADMINISTRADOR) ---
         const exportToCSV = async () => {
             if (currentUserRole !== 'ADMINISTRADOR') return;
             
             try {
-                // Obtener TODOS los documentos (sin filtro de fecha) para el historial completo
                 const snapshot = await getDocs(getOrdersCollectionRef());
                 let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-                // Mapear y ordenar los datos (ordenar por fecha y hora)
                 data.sort((a, b) => {
                     const timeA = a.timestamp && typeof a.timestamp.toDate === 'function' ? a.timestamp.toDate() : new Date(0);
                     const timeB = b.timestamp && typeof b.timestamp.toDate === 'function' ? b.timestamp.toDate() : new Date(0);
                     return timeB - timeA; // Más reciente primero
                 });
 
-                // Crear el contenido CSV
                 const header = [
                     "ID_Pedido", "Fecha", "Hora", "Tipo", "Nombre", "Teléfono", 
                     "Cantidad_Garrafones", "Precio_Unitario", "Total", "NIT", "Dirección", 
@@ -628,7 +639,6 @@
                 
                 const rows = data.map(item => [
                     item.id,
-                    // Conversión de Timestamp a formato local de fecha y hora
                     new Date(item.timestamp.toDate()).toLocaleDateString('es-GT'),
                     new Date(item.timestamp.toDate()).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
                     item.type === 'DOMICILIO' ? 'A Domicilio' : 'Entrega Física',
@@ -643,11 +653,9 @@
                     item.registeredBy
                 ]);
                 
-                // Unir encabezado y filas
                 let csvContent = header.join(";") + "\n";
                 csvContent += rows.map(e => e.join(";")).join("\n");
                 
-                // Crear Blob y enlace de descarga (funciona en Canvas/iframe)
                 const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -666,7 +674,6 @@
 
         // Asignar funciones globales para los eventos onclick en el HTML generado
         window.startOrder = startOrder;
-        window.openControlPanel = openControlPanel;
         window.exportToCSV = exportToCSV;
         
         // Iniciar la autenticación al cargar
@@ -704,7 +711,6 @@
 </head>
 <body class="min-h-screen flex flex-col items-center justify-center p-4">
 
-    <!-- Modal Overlay -->
     <div id="modal-overlay" class="hidden fixed inset-0 bg-gray-600 bg-opacity-75 z-50 items-center justify-center">
         <div class="bg-white rounded-xl shadow-2xl p-6 w-11/12 max-w-md">
             <h3 id="modal-title" class="text-lg font-semibold mb-3 text-teal-600">Título</h3>
@@ -726,23 +732,21 @@
         </div>
     </div>
 
-    <!-- Mensaje de Carga Inicial -->
     <div id="loading-message" class="text-center text-teal-700 text-lg font-medium p-8" style="display: flex;">
         Inicializando aplicación...
     </div>
 
-    <!-- 1. Vista de Inicio de Sesión -->
     <div id="login-view" class="hidden min-h-screen w-full flex-col items-center justify-center">
         <div class="container-card text-center">
             <h1 class="text-3xl font-extrabold text-teal-700 mb-6">AGUA CRISTAL ZONA 6</h1>
             <p class="text-gray-500 mb-8">Ingresa tus credenciales</p>
             <div class="space-y-4">
                 <input type="text" id="login-user" placeholder="Usuario (ADMINISTRADOR o USUARIO 1)" 
-                       class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                       required>
+                        class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                        required>
                 <input type="password" id="login-pass" placeholder="Contraseña" 
-                       class="w-full p-3 mt-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                       required>
+                        class="w-full p-3 mt-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                        required>
                 <button onclick="window.login()" 
                         class="w-full bg-teal-500 text-white p-3 rounded-lg font-bold text-lg teal-button">
                     INICIAR SESIÓN
@@ -752,7 +756,6 @@
         </div>
     </div>
 
-    <!-- 2. Menú Principal -->
     <div id="main-menu-view" class="hidden min-h-screen w-full flex-col items-center justify-center space-y-8">
         <header class="w-full max-w-lg text-center pt-8">
             <h1 class="4xl font-extrabold text-teal-700 mb-2">AGUA CRISTAL ZONA 6</h1>
@@ -777,51 +780,45 @@
         </main>
     </div>
 
-    <!-- 3. Formulario de Pedido -->
     <div id="order-form-view" class="hidden min-h-screen w-full flex-col items-center justify-center p-4">
         <div class="container-card w-full max-w-lg">
             <h2 id="form-title" class="2xl font-bold text-teal-700 mb-6">NUEVO PEDIDO</h2>
             <form id="order-form" class="space-y-4">
                 
-                <!-- Teléfono (Búsqueda) -->
                 <div>
                     <label for="client-phone" class="block text-sm font-medium text-gray-700">Teléfono del Cliente *</label>
                     <input type="tel" id="client-phone" name="phone" required 
-                           class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
-                           placeholder="Ej: 55551234" maxlength="15">
+                            class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
+                            placeholder="Ej: 55551234" maxlength="15">
                     <p id="autofill-status" class="text-xs mt-1 h-4 text-teal-500 font-medium"></p>
                 </div>
                 
-                <!-- Nombre del Cliente -->
                 <div>
                     <label for="client-name" class="block text-sm font-medium text-gray-700">Nombre del Cliente *</label>
                     <input type="text" id="client-name" name="name" required 
-                           class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
-                           placeholder="Nombre Completo">
+                            class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
+                            placeholder="Nombre Completo">
                 </div>
                 
                 <div class="flex space-x-4">
-                    <!-- Cantidad de Garrafones -->
                     <div class="flex-1">
                         <label for="quantity" class="block text-sm font-medium text-gray-700">Cantidad *</label>
                         <input type="number" id="quantity" name="quantity" required min="1" max="99" value="1" 
-                               class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500 text-center">
+                                class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500 text-center">
                     </div>
-                    <!-- NIT (Opcional) -->
                     <div class="flex-1">
                         <label for="client-nit" class="block text-sm font-medium text-gray-700">NIT (Opcional)</label>
                         <input type="text" id="client-nit" name="nit" 
-                               class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
-                               placeholder="C/F o número">
+                                class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
+                                placeholder="C/F o número">
                     </div>
                 </div>
                 
-                <!-- Dirección -->
                 <div>
                     <label for="client-address" class="block text-sm font-medium text-gray-700">Dirección *</label>
                     <textarea id="client-address" name="address" rows="3" required 
-                              class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
-                              placeholder="Calle, Número, Zona, Referencias."></textarea>
+                                 class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
+                                 placeholder="Calle, Número, Zona, Referencias."></textarea>
                 </div>
 
                 <div class="flex justify-between items-center pt-4">
@@ -839,7 +836,6 @@
         </div>
     </div>
 
-    <!-- 4. Panel de Control de Pedidos -->
     <div id="control-panel-view" class="hidden min-h-screen w-full flex-col p-4 pt-10">
         <header class="w-full flex justify-between items-center mb-6">
             <h2 class="text-3xl font-extrabold text-teal-700">Control de Pedidos</h2>
@@ -848,28 +844,26 @@
                         class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition">
                     Menú Principal
                 </button>
-                <!-- Botón de Exportación (Visible solo para ADMIN) -->
                 <button onclick="exportToCSV()" 
                         id="export-csv-btn"
-                        class="px-4 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 transition disabled:opacity-50">
+                        class="px-4 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 transition"
+                        style="display: none;">
                     Descargar CSV
                 </button>
             </div>
         </header>
         
-        <!-- Controles y Totales -->
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-teal-100 p-4 rounded-xl mb-6 shadow-md">
             <div class="flex items-center space-x-3 mb-4 sm:mb-0">
                 <label for="date-filter" class="font-semibold text-teal-800">Filtrar por Fecha:</label>
                 <input type="date" id="date-filter" 
-                       class="p-2 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500">
+                        class="p-2 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500">
             </div>
             <p id="daily-sales-total" class="text-xl font-extrabold text-teal-900 bg-teal-200 px-4 py-2 rounded-lg">
                 Venta Total del Día: Q.0.00
             </p>
         </div>
 
-        <!-- Tabla de Pedidos -->
         <div class="bg-white rounded-xl shadow-lg overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-teal-50">
@@ -885,7 +879,6 @@
                     </tr>
                 </thead>
                 <tbody id="order-list" class="bg-white divide-y divide-gray-200">
-                    <!-- Filas de pedidos se insertan aquí en tiempo real -->
                     <tr><td colspan="8" class="text-center p-8 text-gray-500">Cargando pedidos...</td></tr>
                 </tbody>
             </table>
@@ -893,45 +886,22 @@
     </div>
     
     <script>
-        // Lógica de visualización del botón de ADMIN al cargar el DOM
-        document.addEventListener('DOMContentLoaded', () => {
-            const adminButton = document.getElementById('export-csv-btn');
-            
-            // Re-evaluar la visibilidad del botón de exportación después de que la autenticación establezca el rol
-            const updateAdminUI = () => {
-                const isAdmin = window.currentUserRole === 'ADMINISTRADOR';
-                if (adminButton) {
-                    adminButton.style.display = isAdmin ? 'inline-block' : 'none';
-                }
-                
-                // Si la vista actual es el panel, aseguramos la visibilidad correcta de los botones de acción
-                if (window.views && window.views.panel && window.views.panel.style.display === 'flex') {
-                    // Re-cargar la lista de pedidos si es necesario (para que los botones se muestren/oculten)
-                    if (window.unsubscribeOrders) {
-                        window.unsubscribeOrders();
-                        window.loadOrdersRealtime();
-                    }
-                }
-            };
+        // Lógica de visualización de UI y listeners
 
-            // Sobrescibir el original para incluir la actualización de la UI
-            const originalShowView = window.showView;
-            window.showView = (viewName) => {
-                originalShowView(viewName);
-                if (viewName === 'panel') {
-                    updateAdminUI();
-                }
-            };
-            
-            // Asegurar que updateAdminUI se llama al cambiar el estado de autenticación (si se pasa de no logueado a logueado)
-            if (window.onAuthStateChanged) {
-                window.onAuthStateChanged(window.auth, (user) => {
-                    if (user && window.currentUserRole) {
-                        updateAdminUI();
+        document.addEventListener('DOMContentLoaded', () => {
+             // Listener al botón de volver al menú, reasignado por si acaso.
+            document.querySelectorAll('[onclick="showView(\'main\')"]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    if (window.unsubscribeOrders) {
+                        window.unsubscribeOrders(); // Detener listener del panel
+                        window.unsubscribeOrders = null;
                     }
                 });
-            }
+            });
         });
+
+        // Este bloque ya no es necesario, ya que la lógica de isAdmin se maneja en el JS (createOrderRow)
+        // y la visibilidad del botón de CSV se gestiona en onAuthStateChanged y login().
     </script>
 </body>
 </html>
