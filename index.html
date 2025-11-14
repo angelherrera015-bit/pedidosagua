@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AGUA CRISTAL ZONA 6 - Registro de Pedidos</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            signInWithCustomToken, 
+            onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            doc, 
+            setDoc, 
+            addDoc, 
+            updateDoc, 
+            deleteDoc, 
+            onSnapshot, 
+            collection, 
+            query, 
+            where, 
+            getDocs,
+            Timestamp,
+            writeBatch 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Configuración de Firebase y Variables Globales
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        
+        // ******************************************************************************
+        // * INSTRUCCIÓN IMPORTANTE: PEGAR CONFIGURACIÓN DE FIREBASE AQUÍ.              *
+        // * Reemplace el contenido de este objeto con su configuración de Firebase real. *
+        // * Esto actuará como un FALLBACK si la configuración del entorno Canvas no está disponible. *
+        // ******************************************************************************
+        const FIREBASE_CONFIG_FALLBACK = {
+            apiKey: "AIzaSyCljZ6hn5XQJQ2uexvRucW3HnWIenj-Ybo",
+            authDomain: "aguacristal06.firebaseapp.com",
+            projectId: "aguacristal06",
+            storageBucket: "aguacristal06.firebasestorage.app",
+            messagingSenderId: "1021270951082",
+            appId: "1:1021270951082:web:d5a1edcd8b7a4a7010bcd3"
+        };
+        
+        let firebaseConfig = FIREBASE_CONFIG_FALLBACK;
+
+        try {
+            // 1. Intenta usar la configuración proporcionada por el entorno Canvas (__firebase_config)
+            const envConfig = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+            const parsedConfig = JSON.parse(envConfig);
+
+            // 2. Si la configuración del entorno es válida (tiene projectId), la usamos.
+            if (parsedConfig && parsedConfig.projectId) {
+                firebaseConfig = parsedConfig;
+            }
+            // 3. De lo contrario, usamos FIREBASE_CONFIG_FALLBACK.
+
+        } catch (e) {
+            console.error("Error al cargar o parsear __firebase_config. Usando configuración de fallback.", e);
+        }
+
+        // Perfiles de usuario hardcodeados (Ahora adjunto a window para garantizar alcance global)
+        window.USER_PROFILES = {
+            'ADMINISTRADOR': 'Angel2006$',
+            'USUARIO 1': 'Aguacristal06'
+        };
+
+        // Precios
+        const PRICE_DOMICILIO = 10.00;
+        const PRICE_FISICA = 9.00;
+        
+        let app, db, auth, currentUserId = null, currentUserRole = null;
+        let unsubscribeOrders = null; // Para detener el listener en tiempo real
+
+        // Inicialización de Firebase (ahora se ejecuta solo una vez aquí)
+        try {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            setLogLevel('debug'); // Para depuración
+        } catch (e) {
+            console.error("Error al inicializar Firebase:", e);
+            document.getElementById('loading-message').textContent = "Error de inicialización. Asegúrese de que la configuración de Firebase sea correcta.";
+        }
+        
+        // --- UTILIDADES DE FIREBASE ---
+        const getClientsCollectionRef = () => collection(db, `artifacts/${appId}/public/data/clients`);
+        const getOrdersCollectionRef = () => collection(db, `artifacts/${appId}/public/data/orders`);
+        
+        // --- ESTADO GLOBAL Y VISTAS ---
+        const views = {
+            'login': document.getElementById('login-view'),
+            'main': document.getElementById('main-menu-view'),
+            'form': document.getElementById('order-form-view'),
+            'panel': document.getElementById('control-panel-view'),
+            'modal': document.getElementById('modal-overlay')
+        };
+        const orderForm = document.getElementById('order-form');
+        const phoneInput = document.getElementById('client-phone');
+        const quantityInput = document.getElementById('quantity');
+        
+        let currentOrderType = ''; // 'DOMICILIO' o 'FISICA'
+        let currentEditingOrderId = null; // ID del pedido si estamos editando
+        
+        const showView = (viewName) => {
+            Object.values(views).forEach(view => {
+                if (view && view.style) view.style.display = 'none';
+            });
+            if (views[viewName] && views[viewName].style) {
+                views[viewName].style.display = 'flex';
+                // Solo para vistas principales, centrar
+                if (viewName === 'login' || viewName === 'main') {
+                    views[viewName].style.display = 'flex';
+                    views[viewName].classList.add('flex-col', 'items-center', 'justify-center');
+                }
+            }
+        };
+
+        // --- AUTENTICACIÓN Y ROLES ---
+
+        // Función de autenticación ahora adjunta al objeto window
+        window.handleAuth = async () => {
+            try {
+                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Error al iniciar sesión en Firebase:", error);
+                // Si la conexión falla aquí (ej. API Key incorrecta), se muestra error.
+                document.getElementById('loading-message').textContent = `Error de autenticación: ${error.message}. Verifique su configuración de Firebase.`;
+            }
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                if (!currentUserRole) {
+                    // Si el usuario ya se autenticó con un perfil, se le permite continuar
+                    document.getElementById('loading-message').textContent = 'Listo para iniciar sesión...';
+                    showView('login');
+                } else {
+                    currentUserId = user.uid;
+                    document.getElementById('welcome-message').textContent = `¡Bienvenido, ${currentUserRole}!`;
+                    document.getElementById('main-menu-view').classList.remove('hidden');
+                    document.getElementById('user-info').textContent = `Usuario: ${currentUserRole} | ID de Sesión: ${currentUserId.substring(0, 8)}...`;
+                    
+                    // Asegurar que la UI de ADMIN se actualice al cambiar de vista
+                    const adminButton = document.getElementById('export-csv-btn');
+                    const isAdmin = currentUserRole === 'ADMINISTRADOR';
+                    if (adminButton) {
+                        adminButton.style.display = isAdmin ? 'inline-block' : 'none';
+                    }
+
+                    showView('main');
+                }
+            } else {
+                currentUserRole = null;
+                currentUserId = null;
+                document.getElementById('loading-message').textContent = 'Inicia sesión para continuar.';
+                showView('login');
+            }
+        });
+        
+        const login = async () => {
+            const user = document.getElementById('login-user').value;
+            const pass = document.getElementById('login-pass').value;
+
+            if (window.USER_PROFILES[user] === pass) {
+                // Simulación de inicio de sesión con rol
+                currentUserRole = user;
+                // Forzar la re-evaluación del onAuthStateChanged para actualizar la UI
+                await window.handleAuth(); 
+            } else {
+                showModal('Credenciales Incorrectas', 'El nombre de usuario o la contraseña no son válidos.', true);
+            }
+        };
+
+        // --- LÓGICA DEL FORMULARIO DE PEDIDO ---
+        
+        const startOrder = (type) => {
+            currentOrderType = type;
+            currentEditingOrderId = null;
+            document.getElementById('form-title').textContent = `NUEVO PEDIDO ${type === 'DOMICILIO' ? 'A DOMICILIO (Q.10.00)' : 'ENTREGA FÍSICA (Q.9.00)'}`;
+            orderForm.reset();
+            document.getElementById('quantity').value = 1; // Default a 1
+            updateTotal();
+            showView('form');
+        };
+
+        const updateTotal = () => {
+            const quantity = parseInt(quantityInput.value) || 0;
+            let price = currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
+            const total = (quantity * price).toFixed(2);
+            document.getElementById('order-total').textContent = `Total: Q.${total}`;
+        };
+
+        quantityInput.addEventListener('input', updateTotal);
+        
+        // Autocompletado del cliente
+        phoneInput.addEventListener('input', debounce(async () => {
+            const phone = phoneInput.value.trim();
+            if (phone.length >= 8) { // Mínimo 8 dígitos para buscar
+                try {
+                    const clientsRef = getClientsCollectionRef();
+                    const q = query(clientsRef, where('phone', '==', phone));
+                    const snapshot = await getDocs(q);
+                    
+                    if (!snapshot.empty) {
+                        const clientData = snapshot.docs[0].data();
+                        document.getElementById('client-name').value = clientData.name || '';
+                        document.getElementById('client-nit').value = clientData.nit || '';
+                        document.getElementById('client-address').value = clientData.address || '';
+                        document.getElementById('autofill-status').textContent = 'Cliente encontrado y datos cargados.';
+                        document.getElementById('autofill-status').classList.remove('text-red-500');
+                        document.getElementById('autofill-status').classList.add('text-green-500');
+                    } else {
+                        // Limpiar campos si no se encuentra
+                        if (document.getElementById('client-name').value) {
+                             document.getElementById('client-name').value = '';
+                             document.getElementById('client-nit').value = '';
+                             document.getElementById('client-address').value = '';
+                        }
+                        document.getElementById('autofill-status').textContent = 'Cliente nuevo, por favor complete los datos.';
+                        document.getElementById('autofill-status').classList.remove('text-green-500');
+                        document.getElementById('autofill-status').classList.add('text-teal-500');
+                    }
+                } catch (e) {
+                    console.error("Error en la búsqueda del cliente:", e);
+                    document.getElementById('autofill-status').textContent = 'Error al buscar cliente.';
+                    document.getElementById('autofill-status').classList.remove('text-green-500');
+                    document.getElementById('autofill-status').classList.add('text-red-500');
+                }
+            } else {
+                document.getElementById('autofill-status').textContent = '';
+            }
+        }, 500)); // Debounce para no saturar con cada tecla
+
+        // Función de utilidad para Debounce
+        function debounce(func, timeout = 300){
+            let timer;
+            return (...args) => {
+                clearTimeout(timer);
+                timer = setTimeout(() => { func.apply(this, args); }, timeout);
+            };
+        }
+
+        // Guardar Cliente (para autocompletado)
+        const saveClient = async (phone, name, nit, address) => {
+            const clientData = { phone, name, nit: nit || '', address: address || '' };
+            try {
+                const clientsRef = getClientsCollectionRef();
+                // Usamos el teléfono como ID para facilitar la búsqueda
+                await setDoc(doc(clientsRef, phone), clientData, { merge: true });
+            } catch (e) {
+                console.error("Error al guardar cliente:", e);
+            }
+        };
+
+        // Guardar Pedido
+        const saveOrder = async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData(orderForm);
+            const phone = formData.get('phone').trim();
+            const name = formData.get('name').trim();
+            const quantity = parseInt(formData.get('quantity'));
+            const nit = formData.get('nit').trim();
+            const address = formData.get('address').trim();
+            
+            if (!phone || !name || quantity < 1 || !address) {
+                showModal('Campos Requeridos', 'Por favor, complete todos los campos requeridos (Teléfono, Nombre, Cantidad, Dirección). La Cantidad debe ser al menos 1.', true);
+                return;
+            }
+            
+            await saveClient(phone, name, nit, address); // Guardar cliente para futuras búsquedas
+
+            const now = Timestamp.now();
+            const price = currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
+            const total = (quantity * price);
+
+            const orderData = {
+                phone,
+                name,
+                quantity,
+                nit: nit || 'CF',
+                address,
+                type: currentOrderType,
+                pricePerJug: price,
+                total: total,
+                timestamp: now,
+                date: new Date(now.toDate()).toISOString().split('T')[0], // YYYY-MM-DD
+                isDelivered: currentOrderType === 'DOMICILIO' ? false : true, // Físicas se consideran entregadas inmediatamente
+                registeredBy: currentUserRole
+            };
+
+            try {
+                if (currentEditingOrderId) {
+                    // Editar pedido existente
+                    await updateDoc(doc(getOrdersCollectionRef(), currentEditingOrderId), orderData);
+                    showModal('Pedido Actualizado', 'El pedido ha sido actualizado correctamente.', false);
+                } else {
+                    // Nuevo pedido
+                    await addDoc(getOrdersCollectionRef(), orderData);
+                    showModal('Pedido Registrado', `Se ha registrado el pedido por Q.${total.toFixed(2)}.`, false);
+                }
+                
+                orderForm.reset();
+                showView('main'); // Volver al menú principal
+            } catch (e) {
+                console.error("Error al guardar/actualizar el pedido:", e);
+                showModal('Error', `Ocurrió un error al guardar el pedido: ${e.message}`, true);
+            }
+        };
+        
+        orderForm.addEventListener('submit', saveOrder);
+
+        // --- CONTROL DE PEDIDOS (PANEL) ---
+        
+        const openControlPanel = () => {
+            if (unsubscribeOrders) {
+                unsubscribeOrders();
+            }
+            showView('panel');
+            loadOrdersRealtime();
+        };
+
+        const loadOrdersRealtime = () => {
+            const ordersRef = getOrdersCollectionRef();
+            const orderList = document.getElementById('order-list');
+            const dailySalesTotal = document.getElementById('daily-sales-total');
+            const dateFilter = document.getElementById('date-filter');
+
+            // Establecer el filtro en la fecha de hoy por defecto
+            if (!dateFilter.value) {
+                dateFilter.value = new Date().toISOString().split('T')[0];
+            }
+            
+            const selectedDate = dateFilter.value;
+
+            // Consultar solo los pedidos de la fecha seleccionada
+            const q = query(ordersRef, where('date', '==', selectedDate));
+
+            unsubscribeOrders = onSnapshot(q, (snapshot) => {
+                let totalVentas = 0;
+                orderList.innerHTML = '';
+                
+                snapshot.docs.forEach(docSnapshot => {
+                    const order = docSnapshot.data();
+                    const id = docSnapshot.id;
+                    totalVentas += order.total;
+                    orderList.appendChild(createOrderRow(id, order));
+                });
+
+                dailySalesTotal.textContent = `Venta Total del Día (${selectedDate}): Q.${totalVentas.toFixed(2)}`;
+
+                // Ordenar en el cliente (más reciente primero)
+                sortOrderList(orderList); 
+            }, (error) => {
+                console.error("Error al escuchar pedidos en tiempo real:", error);
+                showModal('Error de Conexión', 'No se pudieron cargar los pedidos en tiempo real.', true);
+            });
+        };
+
+        // Función para ordenar los elementos en el DOM (simulando orderBy)
+        const sortOrderList = (list) => {
+            const rows = Array.from(list.children);
+            rows.sort((a, b) => {
+                // Se espera que 'a.getAttribute('data-timestamp')' contenga el valor de timestamp
+                const timeA = new Date(a.getAttribute('data-timestamp')).getTime();
+                const timeB = new Date(b.getAttribute('data-timestamp')).getTime();
+                return timeB - timeA; // Más reciente primero
+            });
+            rows.forEach(row => list.appendChild(row));
+        };
+
+        // Listener para el filtro de fecha
+        document.getElementById('date-filter').addEventListener('change', () => {
+            if (unsubscribeOrders) {
+                unsubscribeOrders();
+            }
+            loadOrdersRealtime(); // Recargar datos con la nueva fecha
+        });
+        
+        const createOrderRow = (id, order) => {
+            const row = document.createElement('tr');
+            row.className = 'border-b hover:bg-teal-50/50';
+            // Almacenar el timestamp para el ordenamiento en el cliente
+            // Asegurar que 'order.timestamp' sea un objeto Timestamp de Firebase
+            const timestamp = order.timestamp && typeof order.timestamp.toDate === 'function' 
+                ? order.timestamp.toDate().toISOString() 
+                : new Date().toISOString(); // Fallback
+            
+            row.setAttribute('data-timestamp', timestamp); 
+
+            const isAdmin = currentUserRole === 'ADMINISTRADOR';
+
+            const time = new Date(timestamp).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' });
+            
+            // Columna de Estado (Checkbox)
+            let statusCell;
+            if (order.type === 'DOMICILIO') {
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'w-5 h-5 text-teal-600 bg-gray-100 border-gray-300 rounded focus:ring-teal-500';
+                checkbox.checked = order.isDelivered;
+                checkbox.disabled = !isAdmin; // Solo el admin puede cambiar el estado
+                checkbox.addEventListener('change', () => toggleDeliveredStatus(id, checkbox.checked));
+                
+                statusCell = `<td class="p-3 text-center">${checkbox.outerHTML}</td>`;
+            } else {
+                statusCell = `<td class="p-3 text-center"><span class="text-sm font-semibold text-teal-600">N/A</span></td>`;
+            }
+
+            // Columna de Acciones
+            let actionsCell = '';
+            if (isAdmin) {
+                // Sanitizar el objeto 'order' para pasarlo a la función onclick
+                const sanitizedOrder = JSON.stringify(order).replace(/'/g, "&#39;");
+
+                actionsCell = `
+                    <td class="p-3 whitespace-nowrap text-right space-x-2">
+                        <button onclick="window.editOrder('${id}', ${sanitizedOrder})" 
+                                class="text-blue-600 hover:text-blue-800 font-medium text-xs p-1 rounded-full hover:bg-blue-100 transition">
+                            <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-7-3l2.828-2.828a1 1 0 011.414 0L19 11m-9 9h.01M15 5v.01"></path></svg>
+                        </button>
+                        <button onclick="window.deleteOrder('${id}', '${order.name}')" 
+                                class="text-red-600 hover:text-red-800 font-medium text-xs p-1 rounded-full hover:bg-red-100 transition">
+                            <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </td>`;
+            } else {
+                actionsCell = `<td class="p-3 text-center text-gray-400">---</td>`;
+            }
+
+            row.innerHTML = `
+                <td class="p-3 text-sm font-medium text-gray-900">${time}</td>
+                <td class="p-3 text-sm text-gray-700">${order.name} (${order.phone})</td>
+                <td class="p-3 text-sm font-semibold text-center">${order.quantity}</td>
+                <td class="p-3 text-sm text-gray-700">${order.type === 'DOMICILIO' ? 'A Domicilio' : 'Física'}</td>
+                <td class="p-3 text-sm text-gray-700">${order.nit}</td>
+                <td class="p-3 text-sm font-bold text-teal-600 text-right">Q.${order.total.toFixed(2)}</td>
+                ${statusCell}
+                ${actionsCell}
+            `;
+            return row;
+        };
+
+        window.editOrder = (id, order) => {
+            if (currentUserRole !== 'ADMINISTRADOR') return;
+            currentEditingOrderId = id;
+            currentOrderType = order.type;
+            
+            // Llenar el formulario con los datos del pedido
+            document.getElementById('form-title').textContent = `EDITAR PEDIDO #${id.substring(0, 6)} (${order.type === 'DOMICILIO' ? 'Q.10.00' : 'Q.9.00'})`;
+            document.getElementById('client-phone').value = order.phone;
+            document.getElementById('client-name').value = order.name;
+            document.getElementById('quantity').value = order.quantity;
+            document.getElementById('client-nit').value = order.nit === 'CF' ? '' : order.nit;
+            document.getElementById('client-address').value = order.address;
+            
+            // Actualizar el tipo de pedido para que la función updateTotal sepa qué precio usar
+            // La función updateTotal depende de la variable global currentOrderType
+            updateTotal(); 
+            showView('form');
+        };
+
+        window.deleteOrder = async (id, name) => {
+            if (currentUserRole !== 'ADMINISTRADOR') return;
+
+            // Usar modal de confirmación en lugar de alert/confirm
+            showModal('Confirmar Eliminación', `¿Está seguro que desea eliminar el pedido de ${name}?`, true, 
+                async () => {
+                    try {
+                        await deleteDoc(doc(getOrdersCollectionRef(), id));
+                        showModal('Eliminado', 'El pedido ha sido eliminado.', false);
+                    } catch (e) {
+                        console.error("Error al eliminar pedido:", e);
+                        showModal('Error', 'No se pudo eliminar el pedido.', true);
+                    }
+                }
+            );
+        };
+
+        const toggleDeliveredStatus = async (id, isDelivered) => {
+            if (currentUserRole !== 'ADMINISTRADOR') return;
+            try {
+                await updateDoc(doc(getOrdersCollectionRef(), id), { isDelivered });
+            } catch (e) {
+                console.error("Error al actualizar estado de entrega:", e);
+                showModal('Error', 'No se pudo actualizar el estado de entrega.', true);
+            }
+        };
+
+        // --- EXPORTAR A CSV (ADMINISTRADOR) ---
+        const exportToCSV = async () => {
+            if (currentUserRole !== 'ADMINISTRADOR') return;
+            
+            try {
+                // Obtener TODOS los documentos (sin filtro de fecha) para el historial completo
+                const snapshot = await getDocs(getOrdersCollectionRef());
+                let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                // Mapear y ordenar los datos (ordenar por fecha y hora)
+                data.sort((a, b) => {
+                    const timeA = a.timestamp && typeof a.timestamp.toDate === 'function' ? a.timestamp.toDate() : new Date(0);
+                    const timeB = b.timestamp && typeof b.timestamp.toDate === 'function' ? b.timestamp.toDate() : new Date(0);
+                    return timeB - timeA;
+                });
+
+                // Crear el contenido CSV
+                const header = [
+                    "ID_Pedido", "Fecha", "Hora", "Tipo", "Nombre", "Teléfono", 
+                    "Cantidad_Garrafones", "Precio_Unitario", "Total", "NIT", "Dirección", 
+                    "Entregado", "Registrado_Por"
+                ];
+                
+                const rows = data.map(item => [
+                    item.id,
+                    new Date(item.timestamp.toDate()).toLocaleDateString('es-GT'),
+                    new Date(item.timestamp.toDate()).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                    item.type === 'DOMICILIO' ? 'A Domicilio' : 'Entrega Física',
+                    item.name,
+                    item.phone,
+                    item.quantity,
+                    item.pricePerJug.toFixed(2),
+                    item.total.toFixed(2),
+                    item.nit,
+                    `"${item.address.replace(/"/g, '""')}"`, // Escapar comillas en dirección
+                    item.type === 'DOMICILIO' ? (item.isDelivered ? 'SI' : 'NO') : 'N/A',
+                    item.registeredBy
+                ]);
+                
+                // Unir encabezado y filas
+                let csvContent = header.join(";") + "\n";
+                csvContent += rows.map(e => e.join(";")).join("\n");
+                
+                // Crear Blob y enlace de descarga (funciona en Canvas/iframe)
+                const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Pedidos_AGUA_CRISTAL_${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+            } catch (e) {
+                console.error("Error al exportar a CSV:", e);
+                showModal('Error de Exportación', `No se pudieron obtener los datos para la exportación: ${e.message}`, true);
+            }
+        };
+
+        // Asignar funciones globales para los eventos onclick en el HTML generado
+        window.login = login;
+        window.startOrder = startOrder;
+        window.openControlPanel = openControlPanel;
+        window.exportToCSV = exportToCSV;
+        
+        // --- MODAL DE ALERTA/CONFIRMACIÓN ---
+        
+        let confirmAction = null;
+
+        const showModal = (title, message, isError, onConfirm = null) => {
+            const modalTitle = document.getElementById('modal-title');
+            const modalMessage = document.getElementById('modal-message');
+            const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+            const modalCancelBtn = document.getElementById('modal-cancel-btn');
+            const modalCloseBtn = document.getElementById('modal-close-btn');
+
+            modalTitle.textContent = title;
+            modalMessage.textContent = message;
+
+            if (onConfirm) {
+                confirmAction = onConfirm;
+                modalConfirmBtn.style.display = 'inline-flex';
+                modalCancelBtn.style.display = 'inline-flex';
+                modalCloseBtn.style.display = 'none';
+                modalConfirmBtn.textContent = 'Confirmar';
+            } else {
+                confirmAction = null;
+                modalConfirmBtn.style.display = 'none';
+                modalCancelBtn.style.display = 'none';
+                modalCloseBtn.style.display = 'inline-flex';
+            }
+            
+            modalTitle.className = `text-lg font-semibold ${isError ? 'text-red-600' : 'text-teal-600'}`;
+            views.modal.classList.remove('hidden');
+            views.modal.classList.add('flex');
+        };
+
+        const closeModal = () => {
+            views.modal.classList.add('hidden');
+            views.modal.classList.remove('flex');
+            confirmAction = null;
+        };
+
+        document.getElementById('modal-confirm-btn').addEventListener('click', () => {
+            if (confirmAction) {
+                confirmAction();
+            }
+            closeModal();
+        });
+
+        document.getElementById('modal-cancel-btn').addEventListener('click', closeModal);
+        document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+        
+        window.closeModal = closeModal;
+        
+        // Iniciar la autenticación al cargar
+        window.handleAuth();
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0fdfa; /* Teal 50 */
+        }
+        .container-card {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            max-width: 95%;
+            width: 500px;
+        }
+        .teal-button {
+            transition: all 0.2s;
+        }
+        .teal-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+        }
+        /* Estilo para el panel de control grande */
+        #control-panel-view {
+            width: 100%;
+            max-width: 1200px;
+            height: auto;
+            min-height: 100vh;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- Modal Overlay -->
+    <div id="modal-overlay" class="hidden fixed inset-0 bg-gray-600 bg-opacity-75 z-50 items-center justify-center">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-11/12 max-w-md">
+            <h3 id="modal-title" class="text-lg font-semibold mb-3 text-teal-600">Título</h3>
+            <p id="modal-message" class="text-sm text-gray-700 mb-6">Mensaje</p>
+            <div class="flex justify-end space-x-3">
+                <button id="modal-cancel-btn" onclick="window.closeModal()" 
+                        class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition hidden">
+                    Cancelar
+                </button>
+                <button id="modal-confirm-btn" 
+                        class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition hidden">
+                    Confirmar
+                </button>
+                <button id="modal-close-btn" onclick="window.closeModal()" 
+                        class="px-4 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mensaje de Carga Inicial -->
+    <div id="loading-message" class="text-center text-teal-700 text-lg font-medium p-8" style="display: flex;">
+        Inicializando aplicación...
+    </div>
+
+    <!-- 1. Vista de Inicio de Sesión -->
+    <div id="login-view" class="hidden min-h-screen w-full flex-col items-center justify-center">
+        <div class="container-card text-center">
+            <h1 class="text-3xl font-extrabold text-teal-700 mb-6">AGUA CRISTAL ZONA 6</h1>
+            <p class="text-gray-500 mb-8">Ingresa tus credenciales</p>
+            <div class="space-y-4">
+                <input type="text" id="login-user" placeholder="Usuario (ADMINISTRADOR o USUARIO 1)" 
+                       class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                       value="USUARIO 1" required>
+                <input type="password" id="login-pass" placeholder="Contraseña" 
+                       class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                       value="Aguacristal06" required>
+                <button onclick="login()" 
+                        class="w-full bg-teal-500 text-white p-3 rounded-lg font-bold text-lg teal-button">
+                    INICIAR SESIÓN
+                </button>
+            </div>
+            <p class="text-xs text-gray-400 mt-4">Las credenciales predeterminadas están precargadas.</p>
+        </div>
+    </div>
+
+    <!-- 2. Menú Principal -->
+    <div id="main-menu-view" class="hidden min-h-screen w-full flex-col items-center justify-center space-y-8">
+        <header class="w-full max-w-lg text-center pt-8">
+            <h1 class="text-4xl font-extrabold text-teal-700 mb-2">AGUA CRISTAL ZONA 6</h1>
+            <p id="welcome-message" class="text-xl text-teal-600 font-semibold mb-4">¡Bienvenido!</p>
+            <p id="user-info" class="text-xs text-gray-500 mb-6"></p>
+            <button onclick="openControlPanel()" 
+                    class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition">
+                Ver Historial de Pedidos
+            </button>
+        </header>
+
+        <main class="w-full max-w-lg space-y-6">
+            <h2 class="text-2xl font-bold text-center text-teal-700">REGISTRAR NUEVO PEDIDO</h2>
+            <button onclick="startOrder('DOMICILIO')" 
+                    class="w-full h-32 bg-teal-500 text-white text-2xl font-extrabold rounded-xl shadow-lg teal-button flex items-center justify-center">
+                A DOMICILIO (Q.10.00/Garrafón)
+            </button>
+            <button onclick="startOrder('FISICA')" 
+                    class="w-full h-32 bg-teal-700 text-white text-2xl font-extrabold rounded-xl shadow-lg teal-button flex items-center justify-center">
+                ENTREGA FÍSICA (Q.9.00/Garrafón)
+            </button>
+        </main>
+    </div>
+
+    <!-- 3. Formulario de Pedido -->
+    <div id="order-form-view" class="hidden min-h-screen w-full flex-col items-center justify-center p-4">
+        <div class="container-card w-full max-w-lg">
+            <h2 id="form-title" class="text-2xl font-bold text-teal-700 mb-6">NUEVO PEDIDO</h2>
+            <form id="order-form" class="space-y-4">
+                
+                <!-- Teléfono (Búsqueda) -->
+                <div>
+                    <label for="client-phone" class="block text-sm font-medium text-gray-700">Teléfono del Cliente *</label>
+                    <input type="tel" id="client-phone" name="phone" required 
+                           class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
+                           placeholder="Ej: 55551234" maxlength="15">
+                    <p id="autofill-status" class="text-xs mt-1 h-4 text-teal-500 font-medium"></p>
+                </div>
+                
+                <!-- Nombre del Cliente -->
+                <div>
+                    <label for="client-name" class="block text-sm font-medium text-gray-700">Nombre del Cliente *</label>
+                    <input type="text" id="client-name" name="name" required 
+                           class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
+                           placeholder="Nombre Completo">
+                </div>
+                
+                <div class="flex space-x-4">
+                    <!-- Cantidad de Garrafones -->
+                    <div class="flex-1">
+                        <label for="quantity" class="block text-sm font-medium text-gray-700">Cantidad *</label>
+                        <input type="number" id="quantity" name="quantity" required min="1" max="99" value="1" 
+                               class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500 text-center">
+                    </div>
+                    <!-- NIT (Opcional) -->
+                    <div class="flex-1">
+                        <label for="client-nit" class="block text-sm font-medium text-gray-700">NIT (Opcional)</label>
+                        <input type="text" id="client-nit" name="nit" 
+                               class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
+                               placeholder="C/F o número">
+                    </div>
+                </div>
+                
+                <!-- Dirección -->
+                <div>
+                    <label for="client-address" class="block text-sm font-medium text-gray-700">Dirección *</label>
+                    <textarea id="client-address" name="address" rows="3" required 
+                              class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
+                              placeholder="Calle, Número, Zona, Referencias."></textarea>
+                </div>
+
+                <div class="flex justify-between items-center pt-4">
+                    <span id="order-total" class="text-2xl font-extrabold text-teal-800">Total: Q.0.00</span>
+                    <button type="submit" 
+                            class="px-6 py-3 bg-teal-600 text-white font-bold rounded-lg text-lg teal-button hover:bg-teal-700">
+                        GUARDAR PEDIDO
+                    </button>
+                </div>
+            </form>
+            <button onclick="showView('main')" 
+                    class="w-full mt-4 py-2 text-teal-600 border border-teal-600 rounded-lg hover:bg-teal-50 transition">
+                ← Volver al Menú
+            </button>
+        </div>
+    </div>
+
+    <!-- 4. Panel de Control de Pedidos -->
+    <div id="control-panel-view" class="hidden min-h-screen w-full flex-col p-4 pt-10">
+        <header class="w-full flex justify-between items-center mb-6">
+            <h2 class="text-3xl font-extrabold text-teal-700">Control de Pedidos</h2>
+            <div class="flex space-x-3 items-center">
+                <button onclick="showView('main')" 
+                        class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition">
+                    Menú Principal
+                </button>
+                <!-- Botón de Exportación (Visible solo para ADMIN) -->
+                <button onclick="exportToCSV()" 
+                        id="export-csv-btn"
+                        class="px-4 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 transition disabled:opacity-50">
+                    Descargar CSV
+                </button>
+            </div>
+        </header>
+        
+        <!-- Controles y Totales -->
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-teal-100 p-4 rounded-xl mb-6 shadow-md">
+            <div class="flex items-center space-x-3 mb-4 sm:mb-0">
+                <label for="date-filter" class="font-semibold text-teal-800">Filtrar por Fecha:</label>
+                <input type="date" id="date-filter" 
+                       class="p-2 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500">
+            </div>
+            <p id="daily-sales-total" class="text-xl font-extrabold text-teal-900 bg-teal-200 px-4 py-2 rounded-lg">
+                Venta Total del Día: Q.0.00
+            </p>
+        </div>
+
+        <!-- Tabla de Pedidos -->
+        <div class="bg-white rounded-xl shadow-lg overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-teal-50">
+                    <tr>
+                        <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Hora</th>
+                        <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Cliente (Teléfono)</th>
+                        <th class="p-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Cant.</th>
+                        <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Tipo</th>
+                        <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">NIT</th>
+                        <th class="p-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Total</th>
+                        <th class="p-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Entregado</th>
+                        <th class="p-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="order-list" class="bg-white divide-y divide-gray-200">
+                    <!-- Filas de pedidos se insertan aquí en tiempo real -->
+                    <tr><td colspan="8" class="text-center p-8 text-gray-500">Cargando pedidos...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        // Lógica de visualización del botón de ADMIN al cargar el DOM
+        document.addEventListener('DOMContentLoaded', () => {
+            const adminButton = document.getElementById('export-csv-btn');
+            
+            // Re-evaluar la visibilidad del botón de exportación después de que la autenticación establezca el rol
+            const updateAdminUI = () => {
+                const isAdmin = window.currentUserRole === 'ADMINISTRADOR';
+                if (adminButton) {
+                    // El rol se establece tras un login exitoso, no necesitamos el script tag para esto
+                    adminButton.style.display = isAdmin ? 'inline-block' : 'none';
+                }
+                
+                // Si la vista actual es el panel, aseguramos la visibilidad correcta de los botones de acción
+                if (window.views && window.views.panel && window.views.panel.style.display === 'flex') {
+                    // La función createOrderRow ya maneja la lógica de isAdmin para editar/eliminar
+                    // Re-cargar la lista de pedidos si es necesario
+                    if (window.unsubscribeOrders) {
+                        window.unsubscribeOrders();
+                        window.loadOrdersRealtime();
+                    }
+                }
+            };
+
+            // Sobrescibir el original para incluir la actualización de la UI
+            const originalShowView = window.showView;
+            window.showView = (viewName) => {
+                originalShowView(viewName);
+                if (viewName === 'panel') {
+                    updateAdminUI();
+                }
+            };
+            
+            // Reajustar la función de login para asegurar la actualización del rol en la UI
+            const originalLogin = window.login;
+            window.login = async () => {
+                const user = document.getElementById('login-user').value;
+                const pass = document.getElementById('login-pass').value;
+
+                if (window.USER_PROFILES[user] === pass) {
+                    window.currentUserRole = user;
+                    // Llamamos a handleAuth, que a su vez llama a onAuthStateChanged, lo que actualiza la vista a 'main'
+                    await window.handleAuth(); 
+                } else {
+                    window.showModal('Credenciales Incorrectas', 'El nombre de usuario o la contraseña no son válidos.', true);
+                }
+            };
+
+            // Asegurar que updateAdminUI se llama al cambiar el estado de autenticación (si se pasa de no logueado a logueado)
+            if (window.onAuthStateChanged) {
+                window.onAuthStateChanged(window.auth, (user) => {
+                    if (user && window.currentUserRole) {
+                        updateAdminUI();
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
