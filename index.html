@@ -32,13 +32,16 @@
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
+        // Exponer las funciones de Auth al ámbito global (window) para que el código HTML y otros scripts las encuentren.
+        window.signInWithCustomToken = signInWithCustomToken;
+        window.signInAnonymously = signInAnonymously;
+
         // Configuración de Firebase y Variables Globales
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         
         // ******************************************************************************
         // * INSTRUCCIÓN IMPORTANTE: PEGAR CONFIGURACIÓN DE FIREBASE AQUÍ.              *
         // * Reemplace el contenido de este objeto con su configuración de Firebase real. *
-        // * Esto actuará como un FALLBACK si la configuración del entorno Canvas no está disponible. *
         // ******************************************************************************
         const FIREBASE_CONFIG_FALLBACK = {
             apiKey: "AIzaSyCljZ6hn5XQJQ2uexvRucW3HnWIenj-Ybo",
@@ -52,21 +55,18 @@
         let firebaseConfig = FIREBASE_CONFIG_FALLBACK;
 
         try {
-            // 1. Intenta usar la configuración proporcionada por el entorno Canvas (__firebase_config)
             const envConfig = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
             const parsedConfig = JSON.parse(envConfig);
 
-            // 2. Si la configuración del entorno es válida (tiene projectId), la usamos.
             if (parsedConfig && parsedConfig.projectId) {
                 firebaseConfig = parsedConfig;
             }
-            // 3. De lo contrario, usamos FIREBASE_CONFIG_FALLBACK.
 
         } catch (e) {
             console.error("Error al cargar o parsear __firebase_config. Usando configuración de fallback.", e);
         }
 
-        // Perfiles de usuario hardcodeados (Ahora adjunto a window para garantizar alcance global)
+        // Perfiles de usuario hardcodeados
         window.USER_PROFILES = {
             'ADMINISTRADOR': 'Angel2006$',
             'USUARIO 1': 'Aguacristal06'
@@ -76,14 +76,16 @@
         const PRICE_DOMICILIO = 10.00;
         const PRICE_FISICA = 9.00;
         
-        let app, db, auth, currentUserId = null, currentUserRole = null;
+        // Variables de estado local, NO instancias de Firebase
+        let currentUserId = null, currentUserRole = null;
         let unsubscribeOrders = null; // Para detener el listener en tiempo real
 
         // Inicialización de Firebase (ahora se ejecuta solo una vez aquí)
         try {
-            app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            auth = getAuth(app);
+            // Exponer instancias a window para asegurar el alcance global
+            window.app = initializeApp(firebaseConfig);
+            window.db = getFirestore(window.app);
+            window.auth = getAuth(window.app);
             setLogLevel('debug'); // Para depuración
         } catch (e) {
             console.error("Error al inicializar Firebase:", e);
@@ -91,8 +93,9 @@
         }
         
         // --- UTILIDADES DE FIREBASE ---
-        const getClientsCollectionRef = () => collection(db, `artifacts/${appId}/public/data/clients`);
-        const getOrdersCollectionRef = () => collection(db, `artifacts/${appId}/public/data/orders`);
+        // Usamos window.db
+        const getClientsCollectionRef = () => collection(window.db, `artifacts/${appId}/public/data/clients`);
+        const getOrdersCollectionRef = () => collection(window.db, `artifacts/${appId}/public/data/orders`);
         
         // --- ESTADO GLOBAL Y VISTAS ---
         const views = {
@@ -127,40 +130,47 @@
 
         // Función de autenticación ahora adjunta al objeto window
         window.handleAuth = async () => {
+            // Cláusula de guardia: Si auth es undefined, la inicialización falló.
+            if (!window.auth) {
+                console.error("Auth object is undefined. Initialization failed.");
+                document.getElementById('loading-message').textContent = "ERROR: La autenticación no se inicializó correctamente. Verifique la configuración de Firebase.";
+                return;
+            }
             try {
                 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
                 if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
+                    // Usamos la función expuesta al window con window.auth
+                    await window.signInWithCustomToken(window.auth, initialAuthToken);
                 } else {
-                    await signInAnonymously(auth);
+                    // Usamos la función expuesta al window con window.auth
+                    await window.signInAnonymously(window.auth);
                 }
             } catch (error) {
                 console.error("Error al iniciar sesión en Firebase:", error);
-                // Si la conexión falla aquí (ej. API Key incorrecta), se muestra error.
                 document.getElementById('loading-message').textContent = `Error de autenticación: ${error.message}. Verifique su configuración de Firebase.`;
             }
         };
 
-        onAuthStateChanged(auth, (user) => {
+        // Usamos window.auth
+        onAuthStateChanged(window.auth, (user) => {
             if (user) {
-                if (!currentUserRole) {
-                    // Si el usuario ya se autenticó con un perfil, se le permite continuar
-                    document.getElementById('loading-message').textContent = 'Listo para iniciar sesión...';
-                    showView('login');
-                } else {
-                    currentUserId = user.uid;
+                // Si el usuario ya inició sesión con un rol (a través de login()), se mantiene
+                currentUserId = user.uid;
+
+                if (currentUserRole) {
                     document.getElementById('welcome-message').textContent = `¡Bienvenido, ${currentUserRole}!`;
-                    document.getElementById('main-menu-view').classList.remove('hidden');
                     document.getElementById('user-info').textContent = `Usuario: ${currentUserRole} | ID de Sesión: ${currentUserId.substring(0, 8)}...`;
                     
-                    // Asegurar que la UI de ADMIN se actualice al cambiar de vista
                     const adminButton = document.getElementById('export-csv-btn');
                     const isAdmin = currentUserRole === 'ADMINISTRADOR';
                     if (adminButton) {
                         adminButton.style.display = isAdmin ? 'inline-block' : 'none';
                     }
-
                     showView('main');
+                } else {
+                    // Si solo se autenticó anónimamente, mostramos la vista de login
+                    document.getElementById('loading-message').textContent = 'Listo para iniciar sesión...';
+                    showView('login');
                 }
             } else {
                 currentUserRole = null;
@@ -170,17 +180,40 @@
             }
         });
         
+        // Función de inicio de sesión simplificada para el entorno Canvas
         const login = async () => {
+             // Cláusula de guardia: Si auth es undefined, la inicialización falló.
+            if (!window.auth) {
+                console.error("Auth object is undefined. Initialization failed.");
+                window.showModal('Error Crítico', 'La aplicación no se inicializó. Recargue la página o revise la configuración de Firebase.', true);
+                return;
+            }
+            
             const user = document.getElementById('login-user').value;
             const pass = document.getElementById('login-pass').value;
 
             if (window.USER_PROFILES[user] === pass) {
-                // Simulación de inicio de sesión con rol
+                // 1. Establecer el rol de usuario localmente
                 currentUserRole = user;
-                // Forzar la re-evaluación del onAuthStateChanged para actualizar la UI
-                await window.handleAuth(); 
+                
+                // 2. Simular un token de usuario para Firebase para que onAuthStateChanged lo recoja
+                const customToken = user === 'ADMINISTRADOR' ? 'admin_session_token' : 'user1_session_token';
+                
+                try {
+                    // Usar la función expuesta a window con window.auth
+                    await window.signInWithCustomToken(window.auth, customToken);
+                    // onAuthStateChanged se disparará y mostrará la vista 'main'
+                } catch (e) {
+                    // Si la simulación de token falla (ej. reglas de Auth no permiten custom token), volvemos a anónimo
+                    console.error("Error al simular sesión con token personalizado:", e);
+                    window.showModal('Error de Sesión', 'No se pudo establecer la sesión. Reintentando la conexión.', true);
+                    // Usar la función expuesta a window con window.auth
+                    await window.signInAnonymously(window.auth); // Fallback
+                    showView('login'); // Volver a login
+                }
+
             } else {
-                showModal('Credenciales Incorrectas', 'El nombre de usuario o la contraseña no son válidos.', true);
+                window.showModal('Credenciales Incorrectas', 'El nombre de usuario o la contraseña no son válidos.', true);
             }
         };
 
@@ -193,6 +226,7 @@
             orderForm.reset();
             document.getElementById('quantity').value = 1; // Default a 1
             updateTotal();
+            document.getElementById('autofill-status').textContent = '';
             showView('form');
         };
 
@@ -220,23 +254,23 @@
                         document.getElementById('client-nit').value = clientData.nit || '';
                         document.getElementById('client-address').value = clientData.address || '';
                         document.getElementById('autofill-status').textContent = 'Cliente encontrado y datos cargados.';
-                        document.getElementById('autofill-status').classList.remove('text-red-500');
+                        document.getElementById('autofill-status').classList.remove('text-red-500', 'text-teal-500');
                         document.getElementById('autofill-status').classList.add('text-green-500');
                     } else {
                         // Limpiar campos si no se encuentra
-                        if (document.getElementById('client-name').value) {
+                        if (document.getElementById('client-name').value || document.getElementById('client-nit').value || document.getElementById('client-address').value) {
                              document.getElementById('client-name').value = '';
                              document.getElementById('client-nit').value = '';
                              document.getElementById('client-address').value = '';
                         }
                         document.getElementById('autofill-status').textContent = 'Cliente nuevo, por favor complete los datos.';
-                        document.getElementById('autofill-status').classList.remove('text-green-500');
+                        document.getElementById('autofill-status').classList.remove('text-red-500', 'text-green-500');
                         document.getElementById('autofill-status').classList.add('text-teal-500');
                     }
                 } catch (e) {
                     console.error("Error en la búsqueda del cliente:", e);
                     document.getElementById('autofill-status').textContent = 'Error al buscar cliente.';
-                    document.getElementById('autofill-status').classList.remove('text-green-500');
+                    document.getElementById('autofill-status').classList.remove('text-green-500', 'text-teal-500');
                     document.getElementById('autofill-status').classList.add('text-red-500');
                 }
             } else {
@@ -277,7 +311,7 @@
             const address = formData.get('address').trim();
             
             if (!phone || !name || quantity < 1 || !address) {
-                showModal('Campos Requeridos', 'Por favor, complete todos los campos requeridos (Teléfono, Nombre, Cantidad, Dirección). La Cantidad debe ser al menos 1.', true);
+                window.showModal('Campos Requeridos', 'Por favor, complete todos los campos requeridos (Teléfono, Nombre, Cantidad, Dirección). La Cantidad debe ser al menos 1.', true);
                 return;
             }
             
@@ -306,18 +340,18 @@
                 if (currentEditingOrderId) {
                     // Editar pedido existente
                     await updateDoc(doc(getOrdersCollectionRef(), currentEditingOrderId), orderData);
-                    showModal('Pedido Actualizado', 'El pedido ha sido actualizado correctamente.', false);
+                    window.showModal('Pedido Actualizado', 'El pedido ha sido actualizado correctamente.', false);
                 } else {
                     // Nuevo pedido
                     await addDoc(getOrdersCollectionRef(), orderData);
-                    showModal('Pedido Registrado', `Se ha registrado el pedido por Q.${total.toFixed(2)}.`, false);
+                    window.showModal('Pedido Registrado', `Se ha registrado el pedido por Q.${total.toFixed(2)}.`, false);
                 }
                 
                 orderForm.reset();
                 showView('main'); // Volver al menú principal
             } catch (e) {
                 console.error("Error al guardar/actualizar el pedido:", e);
-                showModal('Error', `Ocurrió un error al guardar el pedido: ${e.message}`, true);
+                window.showModal('Error', `Ocurrió un error al guardar el pedido: ${e.message}`, true);
             }
         };
         
@@ -353,12 +387,17 @@
                 let totalVentas = 0;
                 orderList.innerHTML = '';
                 
+                // Usamos fragmento para un mejor rendimiento
+                const fragment = document.createDocumentFragment();
+
                 snapshot.docs.forEach(docSnapshot => {
                     const order = docSnapshot.data();
                     const id = docSnapshot.id;
                     totalVentas += order.total;
-                    orderList.appendChild(createOrderRow(id, order));
+                    fragment.appendChild(createOrderRow(id, order));
                 });
+                
+                orderList.appendChild(fragment);
 
                 dailySalesTotal.textContent = `Venta Total del Día (${selectedDate}): Q.${totalVentas.toFixed(2)}`;
 
@@ -366,7 +405,7 @@
                 sortOrderList(orderList); 
             }, (error) => {
                 console.error("Error al escuchar pedidos en tiempo real:", error);
-                showModal('Error de Conexión', 'No se pudieron cargar los pedidos en tiempo real.', true);
+                window.showModal('Error de Conexión', 'No se pudieron cargar los pedidos en tiempo real.', true);
             });
         };
 
@@ -374,11 +413,11 @@
         const sortOrderList = (list) => {
             const rows = Array.from(list.children);
             rows.sort((a, b) => {
-                // Se espera que 'a.getAttribute('data-timestamp')' contenga el valor de timestamp
                 const timeA = new Date(a.getAttribute('data-timestamp')).getTime();
                 const timeB = new Date(b.getAttribute('data-timestamp')).getTime();
                 return timeB - timeA; // Más reciente primero
             });
+            // Reinsertar filas ordenadas
             rows.forEach(row => list.appendChild(row));
         };
 
@@ -393,21 +432,20 @@
         const createOrderRow = (id, order) => {
             const row = document.createElement('tr');
             row.className = 'border-b hover:bg-teal-50/50';
-            // Almacenar el timestamp para el ordenamiento en el cliente
-            // Asegurar que 'order.timestamp' sea un objeto Timestamp de Firebase
+            
             const timestamp = order.timestamp && typeof order.timestamp.toDate === 'function' 
                 ? order.timestamp.toDate().toISOString() 
-                : new Date().toISOString(); // Fallback
+                : new Date().toISOString(); 
             
             row.setAttribute('data-timestamp', timestamp); 
 
             const isAdmin = currentUserRole === 'ADMINISTRADOR';
-
             const time = new Date(timestamp).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' });
             
             // Columna de Estado (Checkbox)
             let statusCell;
             if (order.type === 'DOMICILIO') {
+                // Crear el checkbox como un elemento real
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
                 checkbox.className = 'w-5 h-5 text-teal-600 bg-gray-100 border-gray-300 rounded focus:ring-teal-500';
@@ -415,7 +453,11 @@
                 checkbox.disabled = !isAdmin; // Solo el admin puede cambiar el estado
                 checkbox.addEventListener('change', () => toggleDeliveredStatus(id, checkbox.checked));
                 
-                statusCell = `<td class="p-3 text-center">${checkbox.outerHTML}</td>`;
+                // Contenedor para el checkbox
+                const td = document.createElement('td');
+                td.className = 'p-3 text-center';
+                td.appendChild(checkbox);
+                statusCell = td.outerHTML; // Obtener el HTML para la inserción
             } else {
                 statusCell = `<td class="p-3 text-center"><span class="text-sm font-semibold text-teal-600">N/A</span></td>`;
             }
@@ -423,12 +465,12 @@
             // Columna de Acciones
             let actionsCell = '';
             if (isAdmin) {
-                // Sanitizar el objeto 'order' para pasarlo a la función onclick
+                // Sanitizar el objeto 'order' para pasarlo a la función onclick 
                 const sanitizedOrder = JSON.stringify(order).replace(/'/g, "&#39;");
 
                 actionsCell = `
                     <td class="p-3 whitespace-nowrap text-right space-x-2">
-                        <button onclick="window.editOrder('${id}', ${sanitizedOrder})" 
+                        <button onclick='window.editOrder("${id}", ${sanitizedOrder})' 
                                 class="text-blue-600 hover:text-blue-800 font-medium text-xs p-1 rounded-full hover:bg-blue-100 transition">
                             <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-7-3l2.828-2.828a1 1 0 011.414 0L19 11m-9 9h.01M15 5v.01"></path></svg>
                         </button>
@@ -451,6 +493,14 @@
                 ${statusCell}
                 ${actionsCell}
             `;
+            // Necesitamos re-agregar el listener al checkbox después de que se inserta el HTML del td
+            if (order.type === 'DOMICILIO') {
+                const checkboxElement = row.querySelector('input[type="checkbox"]');
+                if (checkboxElement) {
+                     checkboxElement.addEventListener('change', () => toggleDeliveredStatus(id, checkboxElement.checked));
+                }
+            }
+            
             return row;
         };
 
@@ -464,11 +514,11 @@
             document.getElementById('client-phone').value = order.phone;
             document.getElementById('client-name').value = order.name;
             document.getElementById('quantity').value = order.quantity;
-            document.getElementById('client-nit').value = order.nit === 'CF' ? '' : order.nit;
+            // Aseguramos que NIT 'CF' se muestre como vacío para que el usuario pueda editarlo
+            document.getElementById('client-nit').value = order.nit === 'CF' ? '' : order.nit; 
             document.getElementById('client-address').value = order.address;
             
             // Actualizar el tipo de pedido para que la función updateTotal sepa qué precio usar
-            // La función updateTotal depende de la variable global currentOrderType
             updateTotal(); 
             showView('form');
         };
@@ -477,14 +527,14 @@
             if (currentUserRole !== 'ADMINISTRADOR') return;
 
             // Usar modal de confirmación en lugar de alert/confirm
-            showModal('Confirmar Eliminación', `¿Está seguro que desea eliminar el pedido de ${name}?`, true, 
+            window.showModal('Confirmar Eliminación', `¿Está seguro que desea eliminar el pedido de ${name}?`, true, 
                 async () => {
                     try {
                         await deleteDoc(doc(getOrdersCollectionRef(), id));
-                        showModal('Eliminado', 'El pedido ha sido eliminado.', false);
+                        window.showModal('Eliminado', 'El pedido ha sido eliminado.', false);
                     } catch (e) {
                         console.error("Error al eliminar pedido:", e);
-                        showModal('Error', 'No se pudo eliminar el pedido.', true);
+                        window.showModal('Error', 'No se pudo eliminar el pedido.', true);
                     }
                 }
             );
@@ -496,7 +546,7 @@
                 await updateDoc(doc(getOrdersCollectionRef(), id), { isDelivered });
             } catch (e) {
                 console.error("Error al actualizar estado de entrega:", e);
-                showModal('Error', 'No se pudo actualizar el estado de entrega.', true);
+                window.showModal('Error', 'No se pudo actualizar el estado de entrega.', true);
             }
         };
 
@@ -513,7 +563,7 @@
                 data.sort((a, b) => {
                     const timeA = a.timestamp && typeof a.timestamp.toDate === 'function' ? a.timestamp.toDate() : new Date(0);
                     const timeB = b.timestamp && typeof b.timestamp.toDate === 'function' ? b.timestamp.toDate() : new Date(0);
-                    return timeB - timeA;
+                    return timeB - timeA; // Más reciente primero
                 });
 
                 // Crear el contenido CSV
@@ -525,6 +575,7 @@
                 
                 const rows = data.map(item => [
                     item.id,
+                    // Conversión de Timestamp a formato local de fecha y hora
                     new Date(item.timestamp.toDate()).toLocaleDateString('es-GT'),
                     new Date(item.timestamp.toDate()).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
                     item.type === 'DOMICILIO' ? 'A Domicilio' : 'Entrega Física',
@@ -556,7 +607,7 @@
 
             } catch (e) {
                 console.error("Error al exportar a CSV:", e);
-                showModal('Error de Exportación', `No se pudieron obtener los datos para la exportación: ${e.message}`, true);
+                window.showModal('Error de Exportación', `No se pudieron obtener los datos para la exportación: ${e.message}`, true);
             }
         };
 
@@ -570,7 +621,8 @@
         
         let confirmAction = null;
 
-        const showModal = (title, message, isError, onConfirm = null) => {
+        // CAMBIO: Definiendo showModal en window
+        window.showModal = (title, message, isError, onConfirm = null) => {
             const modalTitle = document.getElementById('modal-title');
             const modalMessage = document.getElementById('modal-message');
             const modalConfirmBtn = document.getElementById('modal-confirm-btn');
@@ -598,7 +650,8 @@
             views.modal.classList.add('flex');
         };
 
-        const closeModal = () => {
+        // CAMBIO: Definiendo closeModal en window
+        window.closeModal = () => {
             views.modal.classList.add('hidden');
             views.modal.classList.remove('flex');
             confirmAction = null;
@@ -608,13 +661,11 @@
             if (confirmAction) {
                 confirmAction();
             }
-            closeModal();
+            window.closeModal();
         });
 
-        document.getElementById('modal-cancel-btn').addEventListener('click', closeModal);
-        document.getElementById('modal-close-btn').addEventListener('click', closeModal);
-        
-        window.closeModal = closeModal;
+        document.getElementById('modal-cancel-btn').addEventListener('click', window.closeModal);
+        document.getElementById('modal-close-btn').addEventListener('click', window.closeModal);
         
         // Iniciar la autenticación al cargar
         window.handleAuth();
@@ -702,7 +753,7 @@
     <!-- 2. Menú Principal -->
     <div id="main-menu-view" class="hidden min-h-screen w-full flex-col items-center justify-center space-y-8">
         <header class="w-full max-w-lg text-center pt-8">
-            <h1 class="text-4xl font-extrabold text-teal-700 mb-2">AGUA CRISTAL ZONA 6</h1>
+            <h1 class="4xl font-extrabold text-teal-700 mb-2">AGUA CRISTAL ZONA 6</h1>
             <p id="welcome-message" class="text-xl text-teal-600 font-semibold mb-4">¡Bienvenido!</p>
             <p id="user-info" class="text-xs text-gray-500 mb-6"></p>
             <button onclick="openControlPanel()" 
@@ -848,14 +899,12 @@
             const updateAdminUI = () => {
                 const isAdmin = window.currentUserRole === 'ADMINISTRADOR';
                 if (adminButton) {
-                    // El rol se establece tras un login exitoso, no necesitamos el script tag para esto
                     adminButton.style.display = isAdmin ? 'inline-block' : 'none';
                 }
                 
                 // Si la vista actual es el panel, aseguramos la visibilidad correcta de los botones de acción
                 if (window.views && window.views.panel && window.views.panel.style.display === 'flex') {
-                    // La función createOrderRow ya maneja la lógica de isAdmin para editar/eliminar
-                    // Re-cargar la lista de pedidos si es necesario
+                    // Re-cargar la lista de pedidos si es necesario (para que los botones se muestren/oculten)
                     if (window.unsubscribeOrders) {
                         window.unsubscribeOrders();
                         window.loadOrdersRealtime();
@@ -880,9 +929,22 @@
 
                 if (window.USER_PROFILES[user] === pass) {
                     window.currentUserRole = user;
-                    // Llamamos a handleAuth, que a su vez llama a onAuthStateChanged, lo que actualiza la vista a 'main'
-                    await window.handleAuth(); 
+                    
+                    const customToken = user === 'ADMINISTRADOR' ? 'admin_session_token' : 'user1_session_token';
+                    
+                    try {
+                        // Ahora usa la función expuesta a window con window.auth
+                        await window.signInWithCustomToken(window.auth, customToken);
+                        // onAuthStateChanged se disparará y mostrará la vista 'main'
+                    } catch (e) {
+                        console.error("Error al simular sesión con token personalizado:", e);
+                        // Ahora usa la función expuesta a window con window.auth
+                        window.showModal('Error de Sesión', 'No se pudo establecer la sesión. Por favor, verifique la configuración de Firebase Auth.', true);
+                        await window.signInAnonymously(window.auth);
+                        window.showView('login');
+                    }
                 } else {
+                    // Ahora usa la función expuesta a window
                     window.showModal('Credenciales Incorrectas', 'El nombre de usuario o la contraseña no son válidos.', true);
                 }
             };
