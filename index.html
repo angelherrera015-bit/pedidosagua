@@ -488,15 +488,23 @@
         window.deleteOrder = async (id, name) => {
             if (window.currentUserRole !== 'ADMINISTRADOR') return;
 
-            // CORRECCIÓN CLAVE: Definimos el callback directamente con acceso a las funciones de Firebase
+            // CORRECCIÓN FINAL: Pasar referencias de Firebase para garantizar el alcance
+            const ordersRef = getOrdersCollectionRef();
+            const dbRef = window.db;
+
             const deleteDocFunc = async () => {
                 try {
-                    // Usamos las funciones de importación de Firebase aquí
-                    await deleteDoc(doc(getOrdersCollectionRef(), id));
-                    window.showModal('Eliminado', 'El pedido ha sido eliminado.', false);
+                    // Usamos las referencias pasadas para garantizar el acceso
+                    await deleteDoc(doc(ordersRef, id)); 
+                    window.showModal('Eliminado', 'El pedido ha sido eliminado correctamente.', false);
                 } catch (e) {
                     console.error("Error al eliminar pedido:", e);
-                    window.showModal('Error', 'No se pudo eliminar el pedido.', true);
+                    // Si el error es de permisos (aunque seamos admin), recargamos
+                    if (e.code === 'permission-denied') {
+                         window.showModal('Error de Permisos', 'Fallo al eliminar: Permiso denegado. Recargue y vuelva a intentar.', true);
+                    } else {
+                        window.showModal('Error', 'No se pudo eliminar el pedido: ' + e.message, true);
+                    }
                 }
             };
 
