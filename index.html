@@ -237,7 +237,6 @@
             let price = window.currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
             const total = (quantity * price).toFixed(2);
             document.getElementById('order-total').textContent = `Total: Q.${total}`;
-            // Llamada a la actualización del botón de WhatsApp al cambiar el total
             window.updateWhatsAppButton();
         };
 
@@ -423,7 +422,7 @@
                 checkbox.type = 'checkbox';
                 checkbox.className = 'w-5 h-5 text-teal-600 bg-gray-100 border-gray-300 rounded focus:ring-teal-500';
                 checkbox.checked = order.isDelivered;
-                // CAMBIO CLAVE: Quitamos la restricción de solo admin.
+                // PERMISO: Cualquier usuario logueado puede marcar/desmarcar
                 checkbox.disabled = false; 
 
                 checkbox.addEventListener('change', () => window.toggleDeliveredStatus(id, checkbox.checked));
@@ -489,9 +488,10 @@
         window.deleteOrder = async (id, name) => {
             if (window.currentUserRole !== 'ADMINISTRADOR') return;
 
+            // CORRECCIÓN CLAVE: Definimos el callback directamente con acceso a las funciones de Firebase
             const deleteDocFunc = async () => {
                 try {
-                    // Accedemos a la función getOrdersCollectionRef() y doc() para la eliminación
+                    // Usamos las funciones de importación de Firebase aquí
                     await deleteDoc(doc(getOrdersCollectionRef(), id));
                     window.showModal('Eliminado', 'El pedido ha sido eliminado.', false);
                 } catch (e) {
