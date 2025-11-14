@@ -126,11 +126,60 @@
             }
         };
 
+        // --- MODAL DE ALERTA/CONFIRMACIÓN ---
+        
+        let confirmAction = null;
+
+        // CAMBIO: Definiendo showModal en window
+        window.showModal = (title, message, isError, onConfirm = null) => {
+            const modalTitle = document.getElementById('modal-title');
+            const modalMessage = document.getElementById('modal-message');
+            const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+            const modalCancelBtn = document.getElementById('modal-cancel-btn');
+            const modalCloseBtn = document.getElementById('modal-close-btn');
+
+            modalTitle.textContent = title;
+            modalMessage.textContent = message;
+
+            if (onConfirm) {
+                confirmAction = onConfirm;
+                modalConfirmBtn.style.display = 'inline-flex';
+                modalCancelBtn.style.display = 'inline-flex';
+                modalCloseBtn.style.display = 'none';
+                modalConfirmBtn.textContent = 'Confirmar';
+            } else {
+                confirmAction = null;
+                modalConfirmBtn.style.display = 'none';
+                modalCancelBtn.style.display = 'none';
+                modalCloseBtn.style.display = 'inline-flex';
+            }
+            
+            modalTitle.className = `text-lg font-semibold ${isError ? 'text-red-600' : 'text-teal-600'}`;
+            views.modal.classList.remove('hidden');
+            views.modal.classList.add('flex');
+        };
+
+        // CAMBIO: Definiendo closeModal en window
+        window.closeModal = () => {
+            views.modal.classList.add('hidden');
+            views.modal.classList.remove('flex');
+            confirmAction = null;
+        };
+
+        document.getElementById('modal-confirm-btn').addEventListener('click', () => {
+            if (confirmAction) {
+                confirmAction();
+            }
+            window.closeModal();
+        });
+
+        document.getElementById('modal-cancel-btn').addEventListener('click', window.closeModal);
+        document.getElementById('modal-close-btn').addEventListener('click', window.closeModal);
+
         // --- AUTENTICACIÓN Y ROLES ---
 
-        // Función de autenticación ahora adjunta al objeto window
+        // Función de autenticación inicial: Solo se usa para conectar anónimamente a Firestore.
         window.handleAuth = async () => {
-            // Cláusula de guardia: Si auth es undefined, la inicialización falló.
             if (!window.auth) {
                 console.error("Auth object is undefined. Initialization failed.");
                 document.getElementById('loading-message').textContent = "ERROR: La autenticación no se inicializó correctamente. Verifique la configuración de Firebase.";
@@ -139,10 +188,10 @@
             try {
                 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
                 if (initialAuthToken) {
-                    // Usamos la función expuesta al window con window.auth
+                    // Si hay un token de entorno, úsalo.
                     await window.signInWithCustomToken(window.auth, initialAuthToken);
                 } else {
-                    // Usamos la función expuesta al window con window.auth
+                    // Si no, inicia sesión de forma anónima para poder usar Firestore.
                     await window.signInAnonymously(window.auth);
                 }
             } catch (error) {
@@ -151,13 +200,14 @@
             }
         };
 
-        // Usamos window.auth
+        // Escucha el estado de autenticación (usa window.auth)
         onAuthStateChanged(window.auth, (user) => {
+            document.getElementById('loading-message').style.display = 'none';
             if (user) {
-                // Si el usuario ya inició sesión con un rol (a través de login()), se mantiene
                 currentUserId = user.uid;
 
                 if (currentUserRole) {
+                    // Si el rol ya fue establecido por login(), mostramos la vista principal.
                     document.getElementById('welcome-message').textContent = `¡Bienvenido, ${currentUserRole}!`;
                     document.getElementById('user-info').textContent = `Usuario: ${currentUserRole} | ID de Sesión: ${currentUserId.substring(0, 8)}...`;
                     
@@ -168,23 +218,19 @@
                     }
                     showView('main');
                 } else {
-                    // Si solo se autenticó anónimamente, mostramos la vista de login
-                    document.getElementById('loading-message').textContent = 'Listo para iniciar sesión...';
+                    // Si es solo una sesión anónima o inicial sin rol, mostramos login.
                     showView('login');
                 }
             } else {
                 currentUserRole = null;
                 currentUserId = null;
-                document.getElementById('loading-message').textContent = 'Inicia sesión para continuar.';
                 showView('login');
             }
         });
         
-        // Función de inicio de sesión simplificada para el entorno Canvas
+        // Función de inicio de sesión (CORRECCIÓN: Eliminamos signInWithCustomToken para roles)
         const login = async () => {
-             // Cláusula de guardia: Si auth es undefined, la inicialización falló.
             if (!window.auth) {
-                console.error("Auth object is undefined. Initialization failed.");
                 window.showModal('Error Crítico', 'La aplicación no se inicializó. Recargue la página o revise la configuración de Firebase.', true);
                 return;
             }
@@ -193,31 +239,38 @@
             const pass = document.getElementById('login-pass').value;
 
             if (window.USER_PROFILES[user] === pass) {
-                // 1. Establecer el rol de usuario localmente
-                currentUserRole = user;
+                // Autenticación exitosa con credenciales locales
+                currentUserRole = user; 
                 
-                // 2. Simular un token de usuario para Firebase para que onAuthStateChanged lo recoja
-                const customToken = user === 'ADMINISTRADOR' ? 'admin_session_token' : 'user1_session_token';
+                // NOTA: Ya no usamos signInWithCustomToken aquí, sino que confiamos en 
+                // la sesión anónima (establecida en handleAuth) para la conexión a Firestore, 
+                // y el rol lo manejamos internamente.
                 
-                try {
-                    // Usar la función expuesta a window con window.auth
-                    await window.signInWithCustomToken(window.auth, customToken);
-                    // onAuthStateChanged se disparará y mostrará la vista 'main'
-                } catch (e) {
-                    // Si la simulación de token falla (ej. reglas de Auth no permiten custom token), volvemos a anónimo
-                    console.error("Error al simular sesión con token personalizado:", e);
-                    window.showModal('Error de Sesión', 'No se pudo establecer la sesión. Reintentando la conexión.', true);
-                    // Usar la función expuesta a window con window.auth
-                    await window.signInAnonymously(window.auth); // Fallback
-                    showView('login'); // Volver a login
-                }
+                // Disparar un cambio de estado para actualizar la UI internamente
+                // Usamos un pequeño timeout para dar tiempo a que onAuthStateChanged se asegure de la conexión.
+                setTimeout(() => {
+                    // Forzar el cambio de vista, ya que onAuthStateChanged no se dispara sin un cambio de Auth real.
+                    if(window.auth.currentUser) {
+                        document.getElementById('welcome-message').textContent = `¡Bienvenido, ${currentUserRole}!`;
+                        document.getElementById('user-info').textContent = `Usuario: ${currentUserRole} | ID de Sesión: ${window.auth.currentUser.uid.substring(0, 8)}...`;
+                        showView('main');
+                    } else {
+                        // Fallback si no hay usuario de Firebase (raro, pero seguro)
+                        window.showModal('Error de Conexión', 'Credenciales correctas, pero no se pudo establecer la conexión a Firestore.', true);
+                    }
+                }, 100); 
 
             } else {
                 window.showModal('Credenciales Incorrectas', 'El nombre de usuario o la contraseña no son válidos.', true);
             }
         };
 
-        // --- LÓGICA DEL FORMULARIO DE PEDIDO ---
+        // Asignar funciones globales para los eventos onclick en el HTML generado
+        window.login = login;
+
+        // --- RESTO DE LA LÓGICA DE LA APLICACIÓN (NO MODIFICADA EN ESTA CORRECCIÓN) ---
+
+        // Lógica del Formulario
         
         const startOrder = (type) => {
             currentOrderType = type;
@@ -357,7 +410,7 @@
         
         orderForm.addEventListener('submit', saveOrder);
 
-        // --- CONTROL DE PEDIDOS (PANEL) ---
+        // Control de Pedidos (Panel)
         
         const openControlPanel = () => {
             if (unsubscribeOrders) {
@@ -487,7 +540,7 @@
                 <td class="p-3 text-sm font-medium text-gray-900">${time}</td>
                 <td class="p-3 text-sm text-gray-700">${order.name} (${order.phone})</td>
                 <td class="p-3 text-sm font-semibold text-center">${order.quantity}</td>
-                <td class="p-3 text-sm text-gray-700">${order.type === 'DOMICILIO' ? 'A Domicilio' : 'Física'}</td>
+                <td class="p-3 text-sm text-gray-700">${order.type === 'DOMICILIO' ? 'A Domicilio' : 'Entrega Física'}</td>
                 <td class="p-3 text-sm text-gray-700">${order.nit}</td>
                 <td class="p-3 text-sm font-bold text-teal-600 text-right">Q.${order.total.toFixed(2)}</td>
                 ${statusCell}
@@ -612,60 +665,9 @@
         };
 
         // Asignar funciones globales para los eventos onclick en el HTML generado
-        window.login = login;
         window.startOrder = startOrder;
         window.openControlPanel = openControlPanel;
         window.exportToCSV = exportToCSV;
-        
-        // --- MODAL DE ALERTA/CONFIRMACIÓN ---
-        
-        let confirmAction = null;
-
-        // CAMBIO: Definiendo showModal en window
-        window.showModal = (title, message, isError, onConfirm = null) => {
-            const modalTitle = document.getElementById('modal-title');
-            const modalMessage = document.getElementById('modal-message');
-            const modalConfirmBtn = document.getElementById('modal-confirm-btn');
-            const modalCancelBtn = document.getElementById('modal-cancel-btn');
-            const modalCloseBtn = document.getElementById('modal-close-btn');
-
-            modalTitle.textContent = title;
-            modalMessage.textContent = message;
-
-            if (onConfirm) {
-                confirmAction = onConfirm;
-                modalConfirmBtn.style.display = 'inline-flex';
-                modalCancelBtn.style.display = 'inline-flex';
-                modalCloseBtn.style.display = 'none';
-                modalConfirmBtn.textContent = 'Confirmar';
-            } else {
-                confirmAction = null;
-                modalConfirmBtn.style.display = 'none';
-                modalCancelBtn.style.display = 'none';
-                modalCloseBtn.style.display = 'inline-flex';
-            }
-            
-            modalTitle.className = `text-lg font-semibold ${isError ? 'text-red-600' : 'text-teal-600'}`;
-            views.modal.classList.remove('hidden');
-            views.modal.classList.add('flex');
-        };
-
-        // CAMBIO: Definiendo closeModal en window
-        window.closeModal = () => {
-            views.modal.classList.add('hidden');
-            views.modal.classList.remove('flex');
-            confirmAction = null;
-        };
-
-        document.getElementById('modal-confirm-btn').addEventListener('click', () => {
-            if (confirmAction) {
-                confirmAction();
-            }
-            window.closeModal();
-        });
-
-        document.getElementById('modal-cancel-btn').addEventListener('click', window.closeModal);
-        document.getElementById('modal-close-btn').addEventListener('click', window.closeModal);
         
         // Iniciar la autenticación al cargar
         window.handleAuth();
@@ -737,16 +739,16 @@
             <div class="space-y-4">
                 <input type="text" id="login-user" placeholder="Usuario (ADMINISTRADOR o USUARIO 1)" 
                        class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                       value="USUARIO 1" required>
+                       required>
                 <input type="password" id="login-pass" placeholder="Contraseña" 
-                       class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                       value="Aguacristal06" required>
-                <button onclick="login()" 
+                       class="w-full p-3 mt-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                       required>
+                <button onclick="window.login()" 
                         class="w-full bg-teal-500 text-white p-3 rounded-lg font-bold text-lg teal-button">
                     INICIAR SESIÓN
                 </button>
             </div>
-            <p class="text-xs text-gray-400 mt-4">Las credenciales predeterminadas están precargadas.</p>
+            <p class="text-xs text-gray-400 mt-4">Introduce tu usuario y contraseña.</p>
         </div>
     </div>
 
@@ -778,7 +780,7 @@
     <!-- 3. Formulario de Pedido -->
     <div id="order-form-view" class="hidden min-h-screen w-full flex-col items-center justify-center p-4">
         <div class="container-card w-full max-w-lg">
-            <h2 id="form-title" class="text-2xl font-bold text-teal-700 mb-6">NUEVO PEDIDO</h2>
+            <h2 id="form-title" class="2xl font-bold text-teal-700 mb-6">NUEVO PEDIDO</h2>
             <form id="order-form" class="space-y-4">
                 
                 <!-- Teléfono (Búsqueda) -->
@@ -921,34 +923,6 @@
                 }
             };
             
-            // Reajustar la función de login para asegurar la actualización del rol en la UI
-            const originalLogin = window.login;
-            window.login = async () => {
-                const user = document.getElementById('login-user').value;
-                const pass = document.getElementById('login-pass').value;
-
-                if (window.USER_PROFILES[user] === pass) {
-                    window.currentUserRole = user;
-                    
-                    const customToken = user === 'ADMINISTRADOR' ? 'admin_session_token' : 'user1_session_token';
-                    
-                    try {
-                        // Ahora usa la función expuesta a window con window.auth
-                        await window.signInWithCustomToken(window.auth, customToken);
-                        // onAuthStateChanged se disparará y mostrará la vista 'main'
-                    } catch (e) {
-                        console.error("Error al simular sesión con token personalizado:", e);
-                        // Ahora usa la función expuesta a window con window.auth
-                        window.showModal('Error de Sesión', 'No se pudo establecer la sesión. Por favor, verifique la configuración de Firebase Auth.', true);
-                        await window.signInAnonymously(window.auth);
-                        window.showView('login');
-                    }
-                } else {
-                    // Ahora usa la función expuesta a window
-                    window.showModal('Credenciales Incorrectas', 'El nombre de usuario o la contraseña no son válidos.', true);
-                }
-            };
-
             // Asegurar que updateAdminUI se llama al cambiar el estado de autenticación (si se pasa de no logueado a logueado)
             if (window.onAuthStateChanged) {
                 window.onAuthStateChanged(window.auth, (user) => {
