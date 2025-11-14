@@ -237,6 +237,27 @@
             let price = window.currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
             const total = (quantity * price).toFixed(2);
             document.getElementById('order-total').textContent = `Total: Q.${total}`;
+            // Llamada a la actualización del botón de WhatsApp al cambiar el total
+            window.updateWhatsAppButton();
+        };
+
+        window.updateWhatsAppButton = () => {
+            const phone = phoneInput.value.trim();
+            const name = document.getElementById('client-name').value.trim();
+            const quantity = parseInt(quantityInput.value) || 0;
+            const total = (quantity * (window.currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA));
+            const address = document.getElementById('client-address').value.trim();
+            const waButton = document.getElementById('whatsapp-form-btn');
+
+            if (phone.length >= 8 && name && quantity > 0) {
+                waButton.style.display = 'inline-flex';
+                waButton.onclick = () => {
+                    const link = window.generateWhatsAppLink(name, quantity, total, address, false);
+                    window.open(link, '_blank');
+                };
+            } else {
+                waButton.style.display = 'none';
+            }
         };
 
         window.saveClient = async (phone, name, nit, address) => {
@@ -297,13 +318,13 @@
                     await updateDoc(doc(getOrdersCollectionRef(), window.currentEditingOrderId), orderData);
                     window.showModal('Pedido Actualizado', 'El pedido ha sido actualizado correctamente.', false);
                 } else {
-                    await addDoc(getOrdersCollectionRef(), orderData);
+                    const newDocRef = await addDoc(getOrdersCollectionRef(), orderData);
                     
                     const whatsappLink = window.generateWhatsAppLink(name, quantity, total, address, isEditing);
                     
                     window.showModal(
                         'Pedido Registrado', 
-                        `<p>Se ha registrado el pedido por Q.${total.toFixed(2)}.</p><p class="mt-4 font-semibold">¿Desea enviar un mensaje de confirmación por WhatsApp?</p>`, 
+                        `<p>Se ha registrado el pedido con ID: ${newDocRef.id.substring(0, 6)} por Q.${total.toFixed(2)}.</p><p class="mt-4 font-semibold">¿Desea enviar un mensaje de confirmación por WhatsApp?</p>`, 
                         false, 
                         () => window.open(whatsappLink, '_blank'),
                         'Enviar WhatsApp'
@@ -311,6 +332,7 @@
                 }
                 
                 orderForm.reset();
+                window.updateWhatsAppButton(); // Limpiar el botón después de guardar
                 showView('main'); 
             } catch (e) {
                 console.error("Error al guardar/actualizar el pedido:", e);
@@ -434,7 +456,8 @@
             row.innerHTML = `
                 <td class="p-3 text-sm font-medium text-gray-900">${time}</td>
                 <td class="p-3 text-sm text-gray-700">${order.name} (${order.phone})</td>
-                <td class="p-3 text-sm text-gray-700 max-w-xs truncate">${order.address}</td> <td class="p-3 text-sm font-semibold text-center">${order.quantity}</td>
+                <td class="p-3 text-sm text-gray-700 max-w-xs truncate">${order.address}</td>
+                <td class="p-3 text-sm font-semibold text-center">${order.quantity}</td>
                 <td class="p-3 text-sm text-gray-700">${order.type === 'DOMICILIO' ? 'A Domicilio' : 'Entrega Física'}</td>
                 <td class="p-3 text-sm text-gray-700">${order.nit}</td>
                 <td class="p-3 text-sm font-bold text-teal-600 text-right">Q.${order.total.toFixed(2)}</td>
@@ -465,17 +488,19 @@
         window.deleteOrder = async (id, name) => {
             if (window.currentUserRole !== 'ADMINISTRADOR') return;
 
-            window.showModal('Confirmar Eliminación', `¿Está seguro que desea eliminar el pedido de ${name}?`, true, 
-                async () => {
-                    try {
-                        await deleteDoc(doc(getOrdersCollectionRef(), id));
-                        window.showModal('Eliminado', 'El pedido ha sido eliminado.', false);
-                    } catch (e) {
-                        console.error("Error al eliminar pedido:", e);
-                        window.showModal('Error', 'No se pudo eliminar el pedido.', true);
-                    }
+            // Almacenamos la función deleteDoc aquí para que el callback del modal la tenga
+            const deleteDocFunc = async () => {
+                try {
+                    // Accedemos a la función getOrdersCollectionRef() y doc() para la eliminación
+                    await deleteDoc(doc(getOrdersCollectionRef(), id));
+                    window.showModal('Eliminado', 'El pedido ha sido eliminado.', false);
+                } catch (e) {
+                    console.error("Error al eliminar pedido:", e);
+                    window.showModal('Error', 'No se pudo eliminar el pedido.', true);
                 }
-            );
+            };
+
+            window.showModal('Confirmar Eliminación', `¿Está seguro que desea eliminar el pedido de **${name}**?`, true, deleteDocFunc);
         };
 
         window.toggleDeliveredStatus = async (id, isDelivered) => {
@@ -555,8 +580,14 @@
         
         // --- EVENT LISTENERS DINÁMICOS ---
         
-        // Autocompletado del cliente
-        phoneInput.addEventListener('input', debounce(async () => {
+        // Escucha cambios en Teléfono, Nombre, Cantidad o Dirección para habilitar/actualizar botón de WhatsApp
+        const updateOnInput = debounce(() => {
+            window.updateWhatsAppButton();
+        }, 300);
+
+        phoneInput.addEventListener('input', async () => {
+            updateOnInput();
+            // Lógica de autocompletado (mantener la búsqueda de clientes)
             const phone = phoneInput.value.trim();
             if (phone.length >= 8) { 
                 try {
@@ -591,7 +622,10 @@
             } else {
                 document.getElementById('autofill-status').textContent = '';
             }
-        }, 500)); 
+        }); 
+
+        document.getElementById('client-name').addEventListener('input', updateOnInput);
+        document.getElementById('client-address').addEventListener('input', updateOnInput);
 
         // Listener para el filtro de fecha
         document.getElementById('date-filter').addEventListener('change', () => {
@@ -742,6 +776,13 @@
                                  placeholder="Calle, Número, Zona, Referencias."></textarea>
                 </div>
 
+                <button type="button" id="whatsapp-form-btn" style="display: none;"
+                        class="w-full flex items-center justify-center space-x-2 py-3 bg-green-500 text-white font-bold rounded-lg teal-button hover:bg-green-600 transition">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12.02 0c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm4.332 17.518c-.287.185-1.144.62-1.996.945-.851.325-1.748.513-2.673.513-4.103 0-7.447-3.344-7.447-7.447s3.344-7.447 7.447-7.447c2.278 0 4.296 1.053 5.672 2.766l.006.006.006.006c.307.393.447.886.417 1.378-.052.883-.717 1.548-1.548 1.548h-.002c-.504 0-.974-.247-1.294-.653-.294-.374-.62-.803-1.006-1.127-.514-.447-1.229-.694-1.996-.694-.851 0-1.748.247-2.673.74-.851.468-1.548 1.006-1.548 1.996 0 .851.62 1.996 1.748 2.51.514.247 1.229.37 1.996.37 1.006 0 1.996-.447 2.673-.993.514-.447.851-.883 1.294-1.229.374-.325.803-.513 1.294-.513.851 0 1.548.62 1.548 1.548 0 .504-.247.974-.653 1.294z"/></svg>
+                    Enviar Mensaje de WhatsApp
+                </button>
+
+
                 <div class="flex justify-between items-center pt-4">
                     <span id="order-total" class="text-2xl font-extrabold text-teal-800">Total: Q.0.00</span>
                     <button type="submit" 
@@ -791,7 +832,8 @@
                     <tr>
                         <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Hora</th>
                         <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Cliente (Teléfono)</th>
-                        <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Dirección</th> <th class="p-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Cant.</th>
+                        <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Dirección</th>
+                        <th class="p-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Cant.</th>
                         <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Tipo</th>
                         <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">NIT</th>
                         <th class="p-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Total</th>
