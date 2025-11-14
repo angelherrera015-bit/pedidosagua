@@ -91,7 +91,6 @@
         }
         
         // --- UTILIDADES DE FIREBASE ---
-        // Usamos window.db
         const getClientsCollectionRef = () => collection(window.db, `artifacts/${appId}/public/data/clients`);
         const getOrdersCollectionRef = () => collection(window.db, `artifacts/${appId}/public/data/orders`);
         
@@ -129,7 +128,6 @@
         
         let confirmAction = null;
 
-        // CAMBIO: Definiendo showModal en window
         window.showModal = (title, message, isError, onConfirm = null, customConfirmText = 'Confirmar') => {
             const modalTitle = document.getElementById('modal-title');
             const modalMessage = document.getElementById('modal-message');
@@ -138,7 +136,7 @@
             const modalCloseBtn = document.getElementById('modal-close-btn');
 
             modalTitle.textContent = title;
-            modalMessage.innerHTML = message; // Usar innerHTML por si hay un enlace de WhatsApp
+            modalMessage.innerHTML = message; 
 
             if (onConfirm) {
                 confirmAction = onConfirm;
@@ -162,13 +160,13 @@
             views.modal.classList.add('flex');
         };
 
-        // CAMBIO: Definiendo closeModal en window
         window.closeModal = () => {
             views.modal.classList.add('hidden');
             views.modal.classList.remove('flex');
             confirmAction = null;
         };
 
+        // Estos listeners están bien, ya que los elementos del modal existen en el DOM inicial
         document.getElementById('modal-confirm-btn').addEventListener('click', () => {
             if (confirmAction) {
                 confirmAction();
@@ -181,7 +179,6 @@
 
         // --- AUTENTICACIÓN Y ROLES ---
 
-        // Función de autenticación inicial: Solo se usa para conectar anónimamente a Firestore.
         window.handleAuth = async () => {
             if (!window.auth) {
                 console.error("Auth object is undefined. Initialization failed.");
@@ -201,7 +198,6 @@
             }
         };
 
-        // Escucha el estado de autenticación (usa window.auth)
         onAuthStateChanged(window.auth, (user) => {
             document.getElementById('loading-message').style.display = 'none';
             if (user) {
@@ -227,7 +223,7 @@
             }
         });
         
-        // Función de inicio de sesión
+        // CORRECCIÓN: Conectaremos el botón de login más abajo con addEventListener
         const login = async () => {
             if (!window.auth) {
                 window.showModal('Error Crítico', 'La aplicación no se inicializó. Recargue la página o revise la configuración de Firebase.', true);
@@ -238,10 +234,8 @@
             const pass = document.getElementById('login-pass').value;
 
             if (window.USER_PROFILES[user] === pass) {
-                // --- CORRECCIÓN CLAVE ---
                 currentUserRole = user; 
                 
-                // Forzamos la actualización de la UI inmediatamente
                 if(window.auth.currentUser) {
                     document.getElementById('welcome-message').textContent = `¡Bienvenido, ${currentUserRole}!`;
                     document.getElementById('user-info').textContent = `Usuario: ${currentUserRole} | ID de Sesión: ${window.auth.currentUser.uid.substring(0, 8)}...`;
@@ -256,22 +250,18 @@
                 } else {
                     window.showModal('Error de Conexión', 'Credenciales correctas, pero no se pudo establecer la conexión a Firestore.', true);
                 }
-                // --- FIN CORRECCIÓN CLAVE ---
 
             } else {
                 window.showModal('Credenciales Incorrectas', 'El nombre de usuario o la contraseña no son válidos.', true);
             }
         };
 
-        // Asignar funciones globales para los eventos onclick en el HTML generado
         window.login = login;
-        window.currentUserRole = currentUserRole; // Exponer el rol para el script del final
+        window.currentUserRole = currentUserRole; 
         window.unsubscribeOrders = unsubscribeOrders;
         window.loadOrdersRealtime = loadOrdersRealtime;
         
         // --- RESTO DE LA LÓGICA DE LA APLICACIÓN ---
-
-        // Lógica del Formulario
         
         const startOrder = (type) => {
             currentOrderType = type;
@@ -293,10 +283,10 @@
 
         quantityInput.addEventListener('input', updateTotal);
         
-        // Autocompletado del cliente
         phoneInput.addEventListener('input', debounce(async () => {
+            // ... (Lógica de autocompletado) ...
             const phone = phoneInput.value.trim();
-            if (phone.length >= 8) { // Mínimo 8 dígitos para buscar
+            if (phone.length >= 8) { 
                 try {
                     const clientsRef = getClientsCollectionRef();
                     const q = query(clientsRef, where('phone', '==', phone));
@@ -311,7 +301,6 @@
                         document.getElementById('autofill-status').classList.remove('text-red-500', 'text-teal-500');
                         document.getElementById('autofill-status').classList.add('text-green-500');
                     } else {
-                        // Limpiar campos si no se encuentra
                         if (document.getElementById('client-name').value || document.getElementById('client-nit').value || document.getElementById('client-address').value) {
                              document.getElementById('client-name').value = '';
                              document.getElementById('client-nit').value = '';
@@ -330,9 +319,8 @@
             } else {
                 document.getElementById('autofill-status').textContent = '';
             }
-        }, 500)); // Debounce para no saturar con cada tecla
+        }, 500)); 
 
-        // Función de utilidad para Debounce
         function debounce(func, timeout = 300){
             let timer;
             return (...args) => {
@@ -341,27 +329,22 @@
             };
         }
 
-        // Guardar Cliente (para autocompletado)
         const saveClient = async (phone, name, nit, address) => {
             const clientData = { phone, name, nit: nit || '', address: address || '' };
             try {
                 const clientsRef = getClientsCollectionRef();
-                // Usamos el teléfono como ID para facilitar la búsqueda
                 await setDoc(doc(clientsRef, phone), clientData, { merge: true });
             } catch (e) {
                 console.error("Error al guardar cliente:", e);
             }
         };
         
-        // Función para generar link de WhatsApp
         const generateWhatsAppLink = (name, quantity, total, address, isEditing) => {
             const action = isEditing ? "actualizado" : "registrado";
             const message = `¡Hola ${name}!\n\nTu pedido de AGUA CRISTAL ZONA 6 ha sido ${action} exitosamente.\n\n💧 Cantidad: ${quantity} garrafón(es).\n💰 Total: Q.${total.toFixed(2)}.\n📍 Dirección: ${address}.\n\n¡Gracias por tu compra!`;
-            // Usamos el valor actual del input de teléfono
             return `https://wa.me/502${phoneInput.value.trim()}?text=${encodeURIComponent(message)}`;
         };
 
-        // Guardar Pedido
         const saveOrder = async (e) => {
             e.preventDefault();
             
@@ -377,7 +360,7 @@
                 return;
             }
             
-            await saveClient(phone, name, nit, address); // Guardar cliente para futuras búsquedas
+            await saveClient(phone, name, nit, address); 
 
             const now = Timestamp.now();
             const price = currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
@@ -394,21 +377,18 @@
                 pricePerJug: price,
                 total: total,
                 timestamp: now,
-                date: new Date(now.toDate()).toISOString().split('T')[0], // YYYY-MM-DD
-                isDelivered: currentOrderType === 'DOMICILIO' ? false : true, // Físicas se consideran entregadas inmediatamente
+                date: new Date(now.toDate()).toISOString().split('T')[0], 
+                isDelivered: currentOrderType === 'DOMICILIO' ? false : true, 
                 registeredBy: currentUserRole
             };
 
             try {
                 if (isEditing) {
-                    // Editar pedido existente
                     await updateDoc(doc(getOrdersCollectionRef(), currentEditingOrderId), orderData);
                     window.showModal('Pedido Actualizado', 'El pedido ha sido actualizado correctamente.', false);
                 } else {
-                    // Nuevo pedido
                     await addDoc(getOrdersCollectionRef(), orderData);
                     
-                    // --- MENSAJE AUTOMÁTICO DE WHATSAPP ---
                     const whatsappLink = generateWhatsAppLink(name, quantity, total, address, isEditing);
                     
                     window.showModal(
@@ -421,7 +401,7 @@
                 }
                 
                 orderForm.reset();
-                showView('main'); // Volver al menú principal
+                showView('main'); 
             } catch (e) {
                 console.error("Error al guardar/actualizar el pedido:", e);
                 window.showModal('Error', `Ocurrió un error al guardar el pedido: ${e.message}`, true);
@@ -447,18 +427,16 @@
             const dailySalesTotal = document.getElementById('daily-sales-total');
             const dateFilter = document.getElementById('date-filter');
 
-            // Establecer el filtro en la fecha de hoy por defecto
             if (!dateFilter.value) {
                 dateFilter.value = new Date().toISOString().split('T')[0];
             }
             
             const selectedDate = dateFilter.value;
 
-            // Consultar solo los pedidos de la fecha seleccionada
             const q = query(ordersRef, where('date', '==', selectedDate));
 
             if (unsubscribeOrders) {
-                unsubscribeOrders(); // Limpiar el listener anterior antes de crear uno nuevo
+                unsubscribeOrders(); 
             }
 
             unsubscribeOrders = onSnapshot(q, (snapshot) => {
@@ -478,7 +456,6 @@
 
                 dailySalesTotal.textContent = `Venta Total del Día (${selectedDate}): Q.${totalVentas.toFixed(2)}`;
 
-                // Ordenar en el cliente (más reciente primero)
                 sortOrderList(orderList); 
             }, (error) => {
                 console.error("Error al escuchar pedidos en tiempo real:", error);
@@ -487,21 +464,18 @@
             window.unsubscribeOrders = unsubscribeOrders;
         };
 
-        // Función para ordenar los elementos en el DOM (simulando orderBy)
         const sortOrderList = (list) => {
             const rows = Array.from(list.children);
             rows.sort((a, b) => {
                 const timeA = new Date(a.getAttribute('data-timestamp')).getTime();
                 const timeB = new Date(b.getAttribute('data-timestamp')).getTime();
-                return timeB - timeA; // Más reciente primero
+                return timeB - timeA; 
             });
-            // Reinsertar filas ordenadas
             rows.forEach(row => list.appendChild(row));
         };
 
-        // Listener para el filtro de fecha
         document.getElementById('date-filter').addEventListener('change', () => {
-            loadOrdersRealtime(); // Recargar datos con la nueva fecha
+            loadOrdersRealtime(); 
         });
         
         const createOrderRow = (id, order) => {
@@ -512,13 +486,13 @@
                 ? order.timestamp.toDate().toISOString() 
                 : new Date().toISOString(); 
             
-            row.setAttribute('data-id', id); // Para editar/eliminar
+            row.setAttribute('data-id', id); 
             row.setAttribute('data-timestamp', timestamp); 
 
             const isAdmin = currentUserRole === 'ADMINISTRADOR';
             const time = new Date(timestamp).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' });
             
-            // Columna de Estado (Checkbox) - Solución del problema de check
+            // Columna de Estado (Checkbox)
             const tdStatus = document.createElement('td');
             tdStatus.className = 'p-3 text-center';
             
@@ -527,31 +501,28 @@
                 checkbox.type = 'checkbox';
                 checkbox.className = 'w-5 h-5 text-teal-600 bg-gray-100 border-gray-300 rounded focus:ring-teal-500';
                 checkbox.checked = order.isDelivered;
-                checkbox.disabled = !isAdmin; // Solo el admin puede cambiar el estado
+                checkbox.disabled = !isAdmin; 
 
-                // CORRECCIÓN CLAVE: Agregar el listener directamente al elemento
                 checkbox.addEventListener('change', () => toggleDeliveredStatus(id, checkbox.checked));
                 tdStatus.appendChild(checkbox);
             } else {
                 tdStatus.innerHTML = `<span class="text-sm font-semibold text-teal-600">N/A</span>`;
             }
 
-            // Columna de Acciones - Solución del problema de editar/borrar
+            // Columna de Acciones
             const tdActions = document.createElement('td');
             tdActions.className = 'p-3 whitespace-nowrap text-right space-x-2';
             
             if (isAdmin) {
-                // Botón Editar
                 const editBtn = document.createElement('button');
                 editBtn.className = 'text-blue-600 hover:text-blue-800 font-medium text-xs p-1 rounded-full hover:bg-blue-100 transition';
                 editBtn.innerHTML = '<svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-7-3l2.828-2.828a1 1 0 011.414 0L19 11m-9 9h.01M15 5v.01"></path></svg>';
-                editBtn.onclick = () => window.editOrder(id, order);
+                editBtn.addEventListener('click', () => window.editOrder(id, order));
 
-                // Botón Eliminar
                 const deleteBtn = document.createElement('button');
                 deleteBtn.className = 'text-red-600 hover:text-red-800 font-medium text-xs p-1 rounded-full hover:bg-red-100 transition';
                 deleteBtn.innerHTML = '<svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>';
-                deleteBtn.onclick = () => window.deleteOrder(id, order.name);
+                deleteBtn.addEventListener('click', () => window.deleteOrder(id, order.name));
 
                 tdActions.appendChild(editBtn);
                 tdActions.appendChild(deleteBtn);
@@ -568,7 +539,6 @@
                 <td class="p-3 text-sm font-bold text-teal-600 text-right">Q.${order.total.toFixed(2)}</td>
             `;
 
-            // Insertar celdas de DOM creadas dinámicamente
             row.appendChild(tdStatus);
             row.appendChild(tdActions);
             
@@ -580,7 +550,6 @@
             currentEditingOrderId = id;
             currentOrderType = order.type;
             
-            // Llenar el formulario con los datos del pedido
             document.getElementById('form-title').textContent = `EDITAR PEDIDO #${id.substring(0, 6)} (${order.type === 'DOMICILIO' ? 'Q.10.00' : 'Q.9.00'})`;
             document.getElementById('client-phone').value = order.phone;
             document.getElementById('client-name').value = order.name;
@@ -611,19 +580,17 @@
         const toggleDeliveredStatus = async (id, isDelivered) => {
             if (currentUserRole !== 'ADMINISTRADOR') return;
             try {
-                // CORRECCIÓN: Usar updateDoc con el ID del documento
                 await updateDoc(doc(getOrdersCollectionRef(), id), { isDelivered });
             } catch (e) {
                 console.error("Error al actualizar estado de entrega:", e);
                 window.showModal('Error', 'No se pudo actualizar el estado de entrega.', true);
             }
         };
-        window.toggleDeliveredStatus = toggleDeliveredStatus; // Exponer al global
+        window.toggleDeliveredStatus = toggleDeliveredStatus; 
 
-        // --- EXPORTAR A CSV (ADMINISTRADOR) ---
         const exportToCSV = async () => {
             if (currentUserRole !== 'ADMINISTRADOR') return;
-            
+            // ... (Lógica de exportación)
             try {
                 const snapshot = await getDocs(getOrdersCollectionRef());
                 let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -631,7 +598,7 @@
                 data.sort((a, b) => {
                     const timeA = a.timestamp && typeof a.timestamp.toDate === 'function' ? a.timestamp.toDate() : new Date(0);
                     const timeB = b.timestamp && typeof b.timestamp.toDate === 'function' ? b.timestamp.toDate() : new Date(0);
-                    return timeB - timeA; // Más reciente primero
+                    return timeB - timeA; 
                 });
 
                 const header = [
@@ -651,7 +618,7 @@
                     item.pricePerJug.toFixed(2),
                     item.total.toFixed(2),
                     item.nit,
-                    `"${item.address.replace(/"/g, '""')}"`, // Escapar comillas en dirección
+                    `"${item.address.replace(/"/g, '""')}"`, 
                     item.type === 'DOMICILIO' ? (item.isDelivered ? 'SI' : 'NO') : 'N/A',
                     item.registeredBy
                 ]);
@@ -675,7 +642,6 @@
             }
         };
 
-        // Asignar funciones globales para los eventos onclick en el HTML generado
         window.startOrder = startOrder;
         window.exportToCSV = exportToCSV;
         
@@ -719,7 +685,7 @@
             <h3 id="modal-title" class="text-lg font-semibold mb-3 text-teal-600">Título</h3>
             <p id="modal-message" class="text-sm text-gray-700 mb-6">Mensaje</p>
             <div class="flex justify-end space-x-3">
-                <button id="modal-cancel-btn" onclick="window.closeModal()" 
+                <button id="modal-cancel-btn"
                         class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition hidden">
                     Cancelar
                 </button>
@@ -727,7 +693,7 @@
                         class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition hidden">
                     Confirmar
                 </button>
-                <button id="modal-close-btn" onclick="window.closeModal()" 
+                <button id="modal-close-btn"
                         class="px-4 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition">
                     Cerrar
                 </button>
@@ -750,7 +716,7 @@
                 <input type="password" id="login-pass" placeholder="Contraseña" 
                         class="w-full p-3 mt-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
                         required>
-                <button onclick="window.login()" 
+                <button id="login-btn" 
                         class="w-full bg-teal-500 text-white p-3 rounded-lg font-bold text-lg teal-button">
                     INICIAR SESIÓN
                 </button>
@@ -764,7 +730,7 @@
             <h1 class="4xl font-extrabold text-teal-700 mb-2">AGUA CRISTAL ZONA 6</h1>
             <p id="welcome-message" class="text-xl text-teal-600 font-semibold mb-4">¡Bienvenido!</p>
             <p id="user-info" class="text-xs text-gray-500 mb-6"></p>
-            <button onclick="openControlPanel()" 
+            <button id="view-history-btn"
                     class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition">
                 Ver Historial de Pedidos
             </button>
@@ -772,11 +738,11 @@
 
         <main class="w-full max-w-lg space-y-6">
             <h2 class="text-2xl font-bold text-center text-teal-700">REGISTRAR NUEVO PEDIDO</h2>
-            <button onclick="startOrder('DOMICILIO')" 
+            <button id="order-domicilio-btn" data-type="DOMICILIO"
                     class="w-full h-32 bg-teal-500 text-white text-2xl font-extrabold rounded-xl shadow-lg teal-button flex items-center justify-center">
                 A DOMICILIO (Q.10.00/Garrafón)
             </button>
-            <button onclick="startOrder('FISICA')" 
+            <button id="order-fisica-btn" data-type="FISICA"
                     class="w-full h-32 bg-teal-700 text-white text-2xl font-extrabold rounded-xl shadow-lg teal-button flex items-center justify-center">
                 ENTREGA FÍSICA (Q.9.00/Garrafón)
             </button>
@@ -889,20 +855,47 @@
     </div>
     
     <script>
-        // Lógica de visualización de UI y listeners
-
+        // --- Conexión de Event Listeners al cargar el DOM (La Solución) ---
         document.addEventListener('DOMContentLoaded', () => {
-             // Listener al botón de volver al menú, reasignado por si acaso.
+            // 1. Botón de Login
+            const loginBtn = document.getElementById('login-btn');
+            if (loginBtn) {
+                loginBtn.addEventListener('click', window.login);
+            }
+
+            // 2. Botón de Ver Historial de Pedidos
+            const viewHistoryBtn = document.getElementById('view-history-btn');
+            if (viewHistoryBtn) {
+                viewHistoryBtn.addEventListener('click', window.openControlPanel);
+            }
+
+            // 3. Botones de Tipo de Pedido
+            const orderDomicilioBtn = document.getElementById('order-domicilio-btn');
+            if (orderDomicilioBtn) {
+                orderDomicilioBtn.addEventListener('click', () => {
+                    const type = orderDomicilioBtn.getAttribute('data-type');
+                    window.startOrder(type);
+                });
+            }
+
+            const orderFisicaBtn = document.getElementById('order-fisica-btn');
+            if (orderFisicaBtn) {
+                orderFisicaBtn.addEventListener('click', () => {
+                    const type = orderFisicaBtn.getAttribute('data-type');
+                    window.startOrder(type);
+                });
+            }
+            
+            // Listener para limpiar el listener del panel al volver al menú principal
             document.querySelectorAll('[onclick="showView(\'main\')"]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     if (window.unsubscribeOrders) {
-                        window.unsubscribeOrders(); // Detener listener del panel
+                        window.unsubscribeOrders(); 
                         window.unsubscribeOrders = null;
                     }
                 });
             });
         });
-
     </script>
 </body>
 </html>
