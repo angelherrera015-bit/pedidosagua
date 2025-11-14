@@ -146,7 +146,10 @@
                 modalCancelBtn.style.display = 'inline-flex';
                 modalCloseBtn.style.display = 'none';
                 modalConfirmBtn.textContent = customConfirmText;
-                modalConfirmBtn.className = 'px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition';
+                modalConfirmBtn.className = 'px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition';
+                if (isError) {
+                    modalConfirmBtn.className = 'px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition';
+                }
             } else {
                 confirmAction = null;
                 modalConfirmBtn.style.display = 'none';
@@ -235,22 +238,25 @@
             const pass = document.getElementById('login-pass').value;
 
             if (window.USER_PROFILES[user] === pass) {
+                // --- CORRECCIÓN CLAVE ---
                 currentUserRole = user; 
                 
-                setTimeout(() => {
-                    if(window.auth.currentUser) {
-                        document.getElementById('welcome-message').textContent = `¡Bienvenido, ${currentUserRole}!`;
-                        document.getElementById('user-info').textContent = `Usuario: ${currentUserRole} | ID de Sesión: ${window.auth.currentUser.uid.substring(0, 8)}...`;
-                        showView('main');
-                        // Forzar actualización de UI de admin si ya estamos en una vista relevante
-                        if (currentUserRole === 'ADMINISTRADOR') {
-                           const adminButton = document.getElementById('export-csv-btn');
-                           if (adminButton) adminButton.style.display = 'inline-block';
-                        }
-                    } else {
-                        window.showModal('Error de Conexión', 'Credenciales correctas, pero no se pudo establecer la conexión a Firestore.', true);
+                // Forzamos la actualización de la UI inmediatamente
+                if(window.auth.currentUser) {
+                    document.getElementById('welcome-message').textContent = `¡Bienvenido, ${currentUserRole}!`;
+                    document.getElementById('user-info').textContent = `Usuario: ${currentUserRole} | ID de Sesión: ${window.auth.currentUser.uid.substring(0, 8)}...`;
+                    
+                    const adminButton = document.getElementById('export-csv-btn');
+                    const isAdmin = currentUserRole === 'ADMINISTRADOR';
+                    if (adminButton) {
+                        adminButton.style.display = isAdmin ? 'inline-block' : 'none';
                     }
-                }, 100); 
+
+                    showView('main');
+                } else {
+                    window.showModal('Error de Conexión', 'Credenciales correctas, pero no se pudo establecer la conexión a Firestore.', true);
+                }
+                // --- FIN CORRECCIÓN CLAVE ---
 
             } else {
                 window.showModal('Credenciales Incorrectas', 'El nombre de usuario o la contraseña no son válidos.', true);
@@ -273,7 +279,6 @@
             document.getElementById('form-title').textContent = `NUEVO PEDIDO ${type === 'DOMICILIO' ? 'A DOMICILIO (Q.10.00)' : 'ENTREGA FÍSICA (Q.9.00)'}`;
             orderForm.reset();
             document.getElementById('quantity').value = 1; // Default a 1
-            document.getElementById('whatsapp-link').style.display = 'none'; // Ocultar link de whatsapp
             updateTotal();
             document.getElementById('autofill-status').textContent = '';
             showView('form');
@@ -352,6 +357,7 @@
         const generateWhatsAppLink = (name, quantity, total, address, isEditing) => {
             const action = isEditing ? "actualizado" : "registrado";
             const message = `¡Hola ${name}!\n\nTu pedido de AGUA CRISTAL ZONA 6 ha sido ${action} exitosamente.\n\n💧 Cantidad: ${quantity} garrafón(es).\n💰 Total: Q.${total.toFixed(2)}.\n📍 Dirección: ${address}.\n\n¡Gracias por tu compra!`;
+            // Usamos el valor actual del input de teléfono
             return `https://wa.me/502${phoneInput.value.trim()}?text=${encodeURIComponent(message)}`;
         };
 
@@ -402,7 +408,7 @@
                     // Nuevo pedido
                     await addDoc(getOrdersCollectionRef(), orderData);
                     
-                    // --- RE-IMPLEMENTACIÓN DEL MENSAJE AUTOMÁTICO DE WHATSAPP ---
+                    // --- MENSAJE AUTOMÁTICO DE WHATSAPP ---
                     const whatsappLink = generateWhatsAppLink(name, quantity, total, address, isEditing);
                     
                     window.showModal(
@@ -582,9 +588,6 @@
             document.getElementById('client-nit').value = order.nit === 'CF' ? '' : order.nit; 
             document.getElementById('client-address').value = order.address;
             
-            // Ocultar el link de WhatsApp ya que estamos editando
-            document.getElementById('whatsapp-link').style.display = 'none';
-
             updateTotal(); 
             showView('form');
         };
@@ -900,8 +903,6 @@
             });
         });
 
-        // Este bloque ya no es necesario, ya que la lógica de isAdmin se maneja en el JS (createOrderRow)
-        // y la visibilidad del botón de CSV se gestiona en onAuthStateChanged y login().
     </script>
 </body>
 </html>
