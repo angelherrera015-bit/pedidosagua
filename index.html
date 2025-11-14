@@ -430,10 +430,11 @@
                 tdActions.innerHTML = `<span class="p-3 text-center text-gray-400">---</span>`;
             }
 
+            // Se construye la fila con las celdas principales
             row.innerHTML = `
                 <td class="p-3 text-sm font-medium text-gray-900">${time}</td>
                 <td class="p-3 text-sm text-gray-700">${order.name} (${order.phone})</td>
-                <td class="p-3 text-sm font-semibold text-center">${order.quantity}</td>
+                <td class="p-3 text-sm text-gray-700 max-w-xs truncate">${order.address}</td> <td class="p-3 text-sm font-semibold text-center">${order.quantity}</td>
                 <td class="p-3 text-sm text-gray-700">${order.type === 'DOMICILIO' ? 'A Domicilio' : 'Entrega Física'}</td>
                 <td class="p-3 text-sm text-gray-700">${order.nit}</td>
                 <td class="p-3 text-sm font-bold text-teal-600 text-right">Q.${order.total.toFixed(2)}</td>
@@ -596,26 +597,6 @@
         document.getElementById('date-filter').addEventListener('change', () => {
             window.loadOrdersRealtime(); 
         });
-
-        // Iniciar la autenticación al cargar
-        window.handleAuth = async () => {
-            if (!window.auth) {
-                console.error("Auth object is undefined. Initialization failed.");
-                document.getElementById('loading-message').textContent = "ERROR: La autenticación no se inicializó correctamente. Verifique la configuración de Firebase.";
-                return;
-            }
-            try {
-                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                if (initialAuthToken) {
-                    await window.signInWithCustomToken(window.auth, initialAuthToken);
-                } else {
-                    await window.signInAnonymously(window.auth);
-                }
-            } catch (error) {
-                console.error("Error al iniciar sesión en Firebase:", error);
-                document.getElementById('loading-message').textContent = `Error de autenticación: ${error.message}. Verifique su configuración de Firebase.`;
-            }
-        };
 
         window.handleAuth();
     </script>
@@ -810,7 +791,7 @@
                     <tr>
                         <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Hora</th>
                         <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Cliente (Teléfono)</th>
-                        <th class="p-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Cant.</th>
+                        <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Dirección</th> <th class="p-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Cant.</th>
                         <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Tipo</th>
                         <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">NIT</th>
                         <th class="p-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Total</th>
@@ -819,7 +800,7 @@
                     </tr>
                 </thead>
                 <tbody id="order-list" class="bg-white divide-y divide-gray-200">
-                    <tr><td colspan="8" class="text-center p-8 text-gray-500">Cargando pedidos...</td></tr>
+                    <tr><td colspan="9" class="text-center p-8 text-gray-500">Cargando pedidos...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -827,8 +808,6 @@
     
     <script>
         // --- Conexión de Event Listeners al cargar el DOM ---
-        // Este bloque de script final se ejecuta DEPUÉS del bloque type="module", 
-        // lo que garantiza que window.función ya está definida.
         document.addEventListener('DOMContentLoaded', () => {
             // 1. Botón de Login
             const loginBtn = document.getElementById('login-btn');
@@ -867,7 +846,7 @@
                 modalCloseBtn.addEventListener('click', window.closeModal);
             }
 
-            // 5. Listener para limpiar el listener del panel al volver al menú principal (se repite por seguridad)
+            // 5. Listener para limpiar el listener del panel al volver al menú principal
             document.querySelectorAll('[onclick="showView(\'main\')"]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     if (window.unsubscribeOrders) {
