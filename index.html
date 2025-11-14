@@ -30,7 +30,9 @@
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
-        // Exponer las funciones de Auth al ámbito global (window) para que el código HTML y otros scripts las encuentren.
+        // --- Variables Globales (Disponibles solo en este módulo) ---
+        
+        // Exponer funciones Auth necesarias al ámbito global para el fallback si es necesario
         window.signInWithCustomToken = signInWithCustomToken;
         window.signInAnonymously = signInAnonymously;
 
@@ -74,17 +76,17 @@
         const PRICE_DOMICILIO = 10.00;
         const PRICE_FISICA = 9.00;
         
-        // Variables de estado local, NO instancias de Firebase
-        let currentUserId = null, currentUserRole = null;
-        let unsubscribeOrders = null; // Para detener el listener en tiempo real
+        // Variables de estado local, expuestas a window para que los listeners externos puedan acceder
+        window.currentUserId = null;
+        window.currentUserRole = null;
+        window.unsubscribeOrders = null; 
 
-        // Inicialización de Firebase (ahora se ejecuta solo una vez aquí)
+        // Inicialización de Firebase
         try {
-            // Exponer instancias a window para asegurar el alcance global
             window.app = initializeApp(firebaseConfig);
             window.db = getFirestore(window.app);
             window.auth = getAuth(window.app);
-            setLogLevel('debug'); // Para depuración
+            setLogLevel('debug');
         } catch (e) {
             console.error("Error al inicializar Firebase:", e);
             document.getElementById('loading-message').textContent = "Error de inicialización. Asegúrese de que la configuración de Firebase sea correcta.";
@@ -106,8 +108,8 @@
         const phoneInput = document.getElementById('client-phone');
         const quantityInput = document.getElementById('quantity');
         
-        let currentOrderType = ''; // 'DOMICILIO' o 'FISICA'
-        let currentEditingOrderId = null; // ID del pedido si estamos editando
+        window.currentOrderType = ''; 
+        window.currentEditingOrderId = null; 
         
         const showView = (viewName) => {
             Object.values(views).forEach(view => {
@@ -115,19 +117,15 @@
             });
             if (views[viewName] && views[viewName].style) {
                 views[viewName].style.display = 'flex';
-                // Solo para vistas principales, centrar
                 if (viewName === 'login' || viewName === 'main') {
                     views[viewName].style.display = 'flex';
                     views[viewName].classList.add('flex-col', 'items-center', 'justify-center');
                 }
             }
         };
-        window.showView = showView; // Exponer al global
+        window.showView = showView; // EXPOSICIÓN CLAVE
 
-        // --- MODAL DE ALERTA/CONFIRMACIÓN ---
-        
-        let confirmAction = null;
-
+        // --- MODAL DE ALERTA/CONFIRMACIÓN (Expuesto globalmente) ---
         window.showModal = (title, message, isError, onConfirm = null, customConfirmText = 'Confirmar') => {
             const modalTitle = document.getElementById('modal-title');
             const modalMessage = document.getElementById('modal-message');
@@ -139,17 +137,14 @@
             modalMessage.innerHTML = message; 
 
             if (onConfirm) {
-                confirmAction = onConfirm;
+                window.confirmAction = onConfirm;
                 modalConfirmBtn.style.display = 'inline-flex';
                 modalCancelBtn.style.display = 'inline-flex';
                 modalCloseBtn.style.display = 'none';
                 modalConfirmBtn.textContent = customConfirmText;
-                modalConfirmBtn.className = 'px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition';
-                if (isError) {
-                    modalConfirmBtn.className = 'px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition';
-                }
+                modalConfirmBtn.className = `px-4 py-2 text-white rounded-lg transition ${isError ? 'bg-red-500 hover:bg-red-600' : 'bg-green-600 hover:bg-green-700'}`;
             } else {
-                confirmAction = null;
+                window.confirmAction = null;
                 modalConfirmBtn.style.display = 'none';
                 modalCancelBtn.style.display = 'none';
                 modalCloseBtn.style.display = 'inline-flex';
@@ -163,52 +158,21 @@
         window.closeModal = () => {
             views.modal.classList.add('hidden');
             views.modal.classList.remove('flex');
-            confirmAction = null;
+            window.confirmAction = null;
         };
 
-        // Estos listeners están bien, ya que los elementos del modal existen en el DOM inicial
-        document.getElementById('modal-confirm-btn').addEventListener('click', () => {
-            if (confirmAction) {
-                confirmAction();
-            }
-            window.closeModal();
-        });
-
-        document.getElementById('modal-cancel-btn').addEventListener('click', window.closeModal);
-        document.getElementById('modal-close-btn').addEventListener('click', window.closeModal);
-
-        // --- AUTENTICACIÓN Y ROLES ---
-
-        window.handleAuth = async () => {
-            if (!window.auth) {
-                console.error("Auth object is undefined. Initialization failed.");
-                document.getElementById('loading-message').textContent = "ERROR: La autenticación no se inicializó correctamente. Verifique la configuración de Firebase.";
-                return;
-            }
-            try {
-                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                if (initialAuthToken) {
-                    await window.signInWithCustomToken(window.auth, initialAuthToken);
-                } else {
-                    await window.signInAnonymously(window.auth);
-                }
-            } catch (error) {
-                console.error("Error al iniciar sesión en Firebase:", error);
-                document.getElementById('loading-message').textContent = `Error de autenticación: ${error.message}. Verifique su configuración de Firebase.`;
-            }
-        };
-
+        // Escucha el estado de autenticación (usa window.auth)
         onAuthStateChanged(window.auth, (user) => {
             document.getElementById('loading-message').style.display = 'none';
             if (user) {
-                currentUserId = user.uid;
+                window.currentUserId = user.uid;
 
-                if (currentUserRole) {
-                    document.getElementById('welcome-message').textContent = `¡Bienvenido, ${currentUserRole}!`;
-                    document.getElementById('user-info').textContent = `Usuario: ${currentUserRole} | ID de Sesión: ${currentUserId.substring(0, 8)}...`;
+                if (window.currentUserRole) {
+                    document.getElementById('welcome-message').textContent = `¡Bienvenido, ${window.currentUserRole}!`;
+                    document.getElementById('user-info').textContent = `Usuario: ${window.currentUserRole} | ID de Sesión: ${window.currentUserId.substring(0, 8)}...`;
                     
                     const adminButton = document.getElementById('export-csv-btn');
-                    const isAdmin = currentUserRole === 'ADMINISTRADOR';
+                    const isAdmin = window.currentUserRole === 'ADMINISTRADOR';
                     if (adminButton) {
                         adminButton.style.display = isAdmin ? 'inline-block' : 'none';
                     }
@@ -217,14 +181,15 @@
                     showView('login');
                 }
             } else {
-                currentUserRole = null;
-                currentUserId = null;
+                window.currentUserRole = null;
+                window.currentUserId = null;
                 showView('login');
             }
         });
         
-        // CORRECCIÓN: Conectaremos el botón de login más abajo con addEventListener
-        const login = async () => {
+        // --- FUNCIONES CENTRALES (Expuestas globalmente para el último script) ---
+
+        window.login = async () => {
             if (!window.auth) {
                 window.showModal('Error Crítico', 'La aplicación no se inicializó. Recargue la página o revise la configuración de Firebase.', true);
                 return;
@@ -234,14 +199,14 @@
             const pass = document.getElementById('login-pass').value;
 
             if (window.USER_PROFILES[user] === pass) {
-                currentUserRole = user; 
+                window.currentUserRole = user; 
                 
                 if(window.auth.currentUser) {
-                    document.getElementById('welcome-message').textContent = `¡Bienvenido, ${currentUserRole}!`;
-                    document.getElementById('user-info').textContent = `Usuario: ${currentUserRole} | ID de Sesión: ${window.auth.currentUser.uid.substring(0, 8)}...`;
+                    document.getElementById('welcome-message').textContent = `¡Bienvenido, ${window.currentUserRole}!`;
+                    document.getElementById('user-info').textContent = `Usuario: ${window.currentUserRole} | ID de Sesión: ${window.auth.currentUser.uid.substring(0, 8)}...`;
                     
                     const adminButton = document.getElementById('export-csv-btn');
-                    const isAdmin = currentUserRole === 'ADMINISTRADOR';
+                    const isAdmin = window.currentUserRole === 'ADMINISTRADOR';
                     if (adminButton) {
                         adminButton.style.display = isAdmin ? 'inline-block' : 'none';
                     }
@@ -256,80 +221,25 @@
             }
         };
 
-        window.login = login;
-        window.currentUserRole = currentUserRole; 
-        window.unsubscribeOrders = unsubscribeOrders;
-        window.loadOrdersRealtime = loadOrdersRealtime;
-        
-        // --- RESTO DE LA LÓGICA DE LA APLICACIÓN ---
-        
-        const startOrder = (type) => {
-            currentOrderType = type;
-            currentEditingOrderId = null;
+        window.startOrder = (type) => {
+            window.currentOrderType = type;
+            window.currentEditingOrderId = null;
             document.getElementById('form-title').textContent = `NUEVO PEDIDO ${type === 'DOMICILIO' ? 'A DOMICILIO (Q.10.00)' : 'ENTREGA FÍSICA (Q.9.00)'}`;
             orderForm.reset();
-            document.getElementById('quantity').value = 1; // Default a 1
-            updateTotal();
+            document.getElementById('quantity').value = 1; 
+            window.updateTotal();
             document.getElementById('autofill-status').textContent = '';
             showView('form');
         };
 
-        const updateTotal = () => {
+        window.updateTotal = () => {
             const quantity = parseInt(quantityInput.value) || 0;
-            let price = currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
+            let price = window.currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
             const total = (quantity * price).toFixed(2);
             document.getElementById('order-total').textContent = `Total: Q.${total}`;
         };
 
-        quantityInput.addEventListener('input', updateTotal);
-        
-        phoneInput.addEventListener('input', debounce(async () => {
-            // ... (Lógica de autocompletado) ...
-            const phone = phoneInput.value.trim();
-            if (phone.length >= 8) { 
-                try {
-                    const clientsRef = getClientsCollectionRef();
-                    const q = query(clientsRef, where('phone', '==', phone));
-                    const snapshot = await getDocs(q);
-                    
-                    if (!snapshot.empty) {
-                        const clientData = snapshot.docs[0].data();
-                        document.getElementById('client-name').value = clientData.name || '';
-                        document.getElementById('client-nit').value = clientData.nit || '';
-                        document.getElementById('client-address').value = clientData.address || '';
-                        document.getElementById('autofill-status').textContent = 'Cliente encontrado y datos cargados.';
-                        document.getElementById('autofill-status').classList.remove('text-red-500', 'text-teal-500');
-                        document.getElementById('autofill-status').classList.add('text-green-500');
-                    } else {
-                        if (document.getElementById('client-name').value || document.getElementById('client-nit').value || document.getElementById('client-address').value) {
-                             document.getElementById('client-name').value = '';
-                             document.getElementById('client-nit').value = '';
-                             document.getElementById('client-address').value = '';
-                        }
-                        document.getElementById('autofill-status').textContent = 'Cliente nuevo, por favor complete los datos.';
-                        document.getElementById('autofill-status').classList.remove('text-red-500', 'text-green-500');
-                        document.getElementById('autofill-status').classList.add('text-teal-500');
-                    }
-                } catch (e) {
-                    console.error("Error en la búsqueda del cliente:", e);
-                    document.getElementById('autofill-status').textContent = 'Error al buscar cliente.';
-                    document.getElementById('autofill-status').classList.remove('text-green-500', 'text-teal-500');
-                    document.getElementById('autofill-status').classList.add('text-red-500');
-                }
-            } else {
-                document.getElementById('autofill-status').textContent = '';
-            }
-        }, 500)); 
-
-        function debounce(func, timeout = 300){
-            let timer;
-            return (...args) => {
-                clearTimeout(timer);
-                timer = setTimeout(() => { func.apply(this, args); }, timeout);
-            };
-        }
-
-        const saveClient = async (phone, name, nit, address) => {
+        window.saveClient = async (phone, name, nit, address) => {
             const clientData = { phone, name, nit: nit || '', address: address || '' };
             try {
                 const clientsRef = getClientsCollectionRef();
@@ -339,13 +249,13 @@
             }
         };
         
-        const generateWhatsAppLink = (name, quantity, total, address, isEditing) => {
+        window.generateWhatsAppLink = (name, quantity, total, address, isEditing) => {
             const action = isEditing ? "actualizado" : "registrado";
             const message = `¡Hola ${name}!\n\nTu pedido de AGUA CRISTAL ZONA 6 ha sido ${action} exitosamente.\n\n💧 Cantidad: ${quantity} garrafón(es).\n💰 Total: Q.${total.toFixed(2)}.\n📍 Dirección: ${address}.\n\n¡Gracias por tu compra!`;
             return `https://wa.me/502${phoneInput.value.trim()}?text=${encodeURIComponent(message)}`;
         };
 
-        const saveOrder = async (e) => {
+        window.saveOrder = async (e) => {
             e.preventDefault();
             
             const formData = new FormData(orderForm);
@@ -360,12 +270,12 @@
                 return;
             }
             
-            await saveClient(phone, name, nit, address); 
+            await window.saveClient(phone, name, nit, address); 
 
             const now = Timestamp.now();
-            const price = currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
+            const price = window.currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
             const total = (quantity * price);
-            const isEditing = !!currentEditingOrderId;
+            const isEditing = !!window.currentEditingOrderId;
 
             const orderData = {
                 phone,
@@ -373,23 +283,23 @@
                 quantity,
                 nit: nit || 'CF',
                 address,
-                type: currentOrderType,
+                type: window.currentOrderType,
                 pricePerJug: price,
                 total: total,
                 timestamp: now,
                 date: new Date(now.toDate()).toISOString().split('T')[0], 
-                isDelivered: currentOrderType === 'DOMICILIO' ? false : true, 
-                registeredBy: currentUserRole
+                isDelivered: window.currentOrderType === 'DOMICILIO' ? false : true, 
+                registeredBy: window.currentUserRole
             };
 
             try {
                 if (isEditing) {
-                    await updateDoc(doc(getOrdersCollectionRef(), currentEditingOrderId), orderData);
+                    await updateDoc(doc(getOrdersCollectionRef(), window.currentEditingOrderId), orderData);
                     window.showModal('Pedido Actualizado', 'El pedido ha sido actualizado correctamente.', false);
                 } else {
                     await addDoc(getOrdersCollectionRef(), orderData);
                     
-                    const whatsappLink = generateWhatsAppLink(name, quantity, total, address, isEditing);
+                    const whatsappLink = window.generateWhatsAppLink(name, quantity, total, address, isEditing);
                     
                     window.showModal(
                         'Pedido Registrado', 
@@ -407,21 +317,16 @@
                 window.showModal('Error', `Ocurrió un error al guardar el pedido: ${e.message}`, true);
             }
         };
-        
-        orderForm.addEventListener('submit', saveOrder);
 
-        // Control de Pedidos (Panel)
-        
-        const openControlPanel = () => {
-            if (unsubscribeOrders) {
-                unsubscribeOrders();
+        window.openControlPanel = () => {
+            if (window.unsubscribeOrders) {
+                window.unsubscribeOrders();
             }
             showView('panel');
-            loadOrdersRealtime();
+            window.loadOrdersRealtime();
         };
-        window.openControlPanel = openControlPanel; // Exponer al global
 
-        const loadOrdersRealtime = () => {
+        window.loadOrdersRealtime = () => {
             const ordersRef = getOrdersCollectionRef();
             const orderList = document.getElementById('order-list');
             const dailySalesTotal = document.getElementById('daily-sales-total');
@@ -435,11 +340,11 @@
 
             const q = query(ordersRef, where('date', '==', selectedDate));
 
-            if (unsubscribeOrders) {
-                unsubscribeOrders(); 
+            if (window.unsubscribeOrders) {
+                window.unsubscribeOrders(); 
             }
 
-            unsubscribeOrders = onSnapshot(q, (snapshot) => {
+            window.unsubscribeOrders = onSnapshot(q, (snapshot) => {
                 let totalVentas = 0;
                 orderList.innerHTML = '';
                 
@@ -449,22 +354,21 @@
                     const order = docSnapshot.data();
                     const id = docSnapshot.id;
                     totalVentas += order.total;
-                    fragment.appendChild(createOrderRow(id, order));
+                    fragment.appendChild(window.createOrderRow(id, order));
                 });
                 
                 orderList.appendChild(fragment);
 
                 dailySalesTotal.textContent = `Venta Total del Día (${selectedDate}): Q.${totalVentas.toFixed(2)}`;
 
-                sortOrderList(orderList); 
+                window.sortOrderList(orderList); 
             }, (error) => {
                 console.error("Error al escuchar pedidos en tiempo real:", error);
                 window.showModal('Error de Conexión', 'No se pudieron cargar los pedidos en tiempo real.', true);
             });
-            window.unsubscribeOrders = unsubscribeOrders;
         };
 
-        const sortOrderList = (list) => {
+        window.sortOrderList = (list) => {
             const rows = Array.from(list.children);
             rows.sort((a, b) => {
                 const timeA = new Date(a.getAttribute('data-timestamp')).getTime();
@@ -473,12 +377,8 @@
             });
             rows.forEach(row => list.appendChild(row));
         };
-
-        document.getElementById('date-filter').addEventListener('change', () => {
-            loadOrdersRealtime(); 
-        });
         
-        const createOrderRow = (id, order) => {
+        window.createOrderRow = (id, order) => {
             const row = document.createElement('tr');
             row.className = 'border-b hover:bg-teal-50/50';
             
@@ -489,7 +389,7 @@
             row.setAttribute('data-id', id); 
             row.setAttribute('data-timestamp', timestamp); 
 
-            const isAdmin = currentUserRole === 'ADMINISTRADOR';
+            const isAdmin = window.currentUserRole === 'ADMINISTRADOR';
             const time = new Date(timestamp).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' });
             
             // Columna de Estado (Checkbox)
@@ -503,7 +403,7 @@
                 checkbox.checked = order.isDelivered;
                 checkbox.disabled = !isAdmin; 
 
-                checkbox.addEventListener('change', () => toggleDeliveredStatus(id, checkbox.checked));
+                checkbox.addEventListener('change', () => window.toggleDeliveredStatus(id, checkbox.checked));
                 tdStatus.appendChild(checkbox);
             } else {
                 tdStatus.innerHTML = `<span class="text-sm font-semibold text-teal-600">N/A</span>`;
@@ -546,9 +446,9 @@
         };
 
         window.editOrder = (id, order) => {
-            if (currentUserRole !== 'ADMINISTRADOR') return;
-            currentEditingOrderId = id;
-            currentOrderType = order.type;
+            if (window.currentUserRole !== 'ADMINISTRADOR') return;
+            window.currentEditingOrderId = id;
+            window.currentOrderType = order.type;
             
             document.getElementById('form-title').textContent = `EDITAR PEDIDO #${id.substring(0, 6)} (${order.type === 'DOMICILIO' ? 'Q.10.00' : 'Q.9.00'})`;
             document.getElementById('client-phone').value = order.phone;
@@ -557,12 +457,12 @@
             document.getElementById('client-nit').value = order.nit === 'CF' ? '' : order.nit; 
             document.getElementById('client-address').value = order.address;
             
-            updateTotal(); 
+            window.updateTotal(); 
             showView('form');
         };
 
         window.deleteOrder = async (id, name) => {
-            if (currentUserRole !== 'ADMINISTRADOR') return;
+            if (window.currentUserRole !== 'ADMINISTRADOR') return;
 
             window.showModal('Confirmar Eliminación', `¿Está seguro que desea eliminar el pedido de ${name}?`, true, 
                 async () => {
@@ -577,8 +477,8 @@
             );
         };
 
-        const toggleDeliveredStatus = async (id, isDelivered) => {
-            if (currentUserRole !== 'ADMINISTRADOR') return;
+        window.toggleDeliveredStatus = async (id, isDelivered) => {
+            if (window.currentUserRole !== 'ADMINISTRADOR') return;
             try {
                 await updateDoc(doc(getOrdersCollectionRef(), id), { isDelivered });
             } catch (e) {
@@ -586,11 +486,10 @@
                 window.showModal('Error', 'No se pudo actualizar el estado de entrega.', true);
             }
         };
-        window.toggleDeliveredStatus = toggleDeliveredStatus; 
 
-        const exportToCSV = async () => {
-            if (currentUserRole !== 'ADMINISTRADOR') return;
-            // ... (Lógica de exportación)
+        window.exportToCSV = async () => {
+            if (window.currentUserRole !== 'ADMINISTRADOR') return;
+            
             try {
                 const snapshot = await getDocs(getOrdersCollectionRef());
                 let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -642,10 +541,82 @@
             }
         };
 
-        window.startOrder = startOrder;
-        window.exportToCSV = exportToCSV;
+
+        // --- FUNCIONES UTILITARIAS ---
+
+        function debounce(func, timeout = 300){
+            let timer;
+            return (...args) => {
+                clearTimeout(timer);
+                timer = setTimeout(() => { func.apply(this, args); }, timeout);
+            };
+        }
         
+        // --- EVENT LISTENERS DINÁMICOS ---
+        
+        // Autocompletado del cliente
+        phoneInput.addEventListener('input', debounce(async () => {
+            const phone = phoneInput.value.trim();
+            if (phone.length >= 8) { 
+                try {
+                    const clientsRef = getClientsCollectionRef();
+                    const q = query(clientsRef, where('phone', '==', phone));
+                    const snapshot = await getDocs(q);
+                    
+                    if (!snapshot.empty) {
+                        const clientData = snapshot.docs[0].data();
+                        document.getElementById('client-name').value = clientData.name || '';
+                        document.getElementById('client-nit').value = clientData.nit || '';
+                        document.getElementById('client-address').value = clientData.address || '';
+                        document.getElementById('autofill-status').textContent = 'Cliente encontrado y datos cargados.';
+                        document.getElementById('autofill-status').classList.remove('text-red-500', 'text-teal-500');
+                        document.getElementById('autofill-status').classList.add('text-green-500');
+                    } else {
+                        if (document.getElementById('client-name').value || document.getElementById('client-nit').value || document.getElementById('client-address').value) {
+                             document.getElementById('client-name').value = '';
+                             document.getElementById('client-nit').value = '';
+                             document.getElementById('client-address').value = '';
+                        }
+                        document.getElementById('autofill-status').textContent = 'Cliente nuevo, por favor complete los datos.';
+                        document.getElementById('autofill-status').classList.remove('text-red-500', 'text-green-500');
+                        document.getElementById('autofill-status').classList.add('text-teal-500');
+                    }
+                } catch (e) {
+                    console.error("Error en la búsqueda del cliente:", e);
+                    document.getElementById('autofill-status').textContent = 'Error al buscar cliente.';
+                    document.getElementById('autofill-status').classList.remove('text-green-500', 'text-teal-500');
+                    document.getElementById('autofill-status').classList.add('text-red-500');
+                }
+            } else {
+                document.getElementById('autofill-status').textContent = '';
+            }
+        }, 500)); 
+
+        // Listener para el filtro de fecha
+        document.getElementById('date-filter').addEventListener('change', () => {
+            window.loadOrdersRealtime(); 
+        });
+
         // Iniciar la autenticación al cargar
+        window.handleAuth = async () => {
+            if (!window.auth) {
+                console.error("Auth object is undefined. Initialization failed.");
+                document.getElementById('loading-message').textContent = "ERROR: La autenticación no se inicializó correctamente. Verifique la configuración de Firebase.";
+                return;
+            }
+            try {
+                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (initialAuthToken) {
+                    await window.signInWithCustomToken(window.auth, initialAuthToken);
+                } else {
+                    await window.signInAnonymously(window.auth);
+                }
+            } catch (error) {
+                console.error("Error al iniciar sesión en Firebase:", error);
+                document.getElementById('loading-message').textContent = `Error de autenticación: ${error.message}. Verifique su configuración de Firebase.`;
+            }
+        };
+
         window.handleAuth();
     </script>
     <style>
@@ -855,38 +826,48 @@
     </div>
     
     <script>
-        // --- Conexión de Event Listeners al cargar el DOM (La Solución) ---
+        // --- Conexión de Event Listeners al cargar el DOM ---
+        // Este bloque de script final se ejecuta DEPUÉS del bloque type="module", 
+        // lo que garantiza que window.función ya está definida.
         document.addEventListener('DOMContentLoaded', () => {
             // 1. Botón de Login
             const loginBtn = document.getElementById('login-btn');
-            if (loginBtn) {
+            if (loginBtn && window.login) {
                 loginBtn.addEventListener('click', window.login);
             }
 
             // 2. Botón de Ver Historial de Pedidos
             const viewHistoryBtn = document.getElementById('view-history-btn');
-            if (viewHistoryBtn) {
+            if (viewHistoryBtn && window.openControlPanel) {
                 viewHistoryBtn.addEventListener('click', window.openControlPanel);
             }
 
-            // 3. Botones de Tipo de Pedido
+            // 3. Botones de Tipo de Pedido (Menú Principal)
             const orderDomicilioBtn = document.getElementById('order-domicilio-btn');
-            if (orderDomicilioBtn) {
+            if (orderDomicilioBtn && window.startOrder) {
                 orderDomicilioBtn.addEventListener('click', () => {
-                    const type = orderDomicilioBtn.getAttribute('data-type');
-                    window.startOrder(type);
+                    window.startOrder('DOMICILIO');
                 });
             }
 
             const orderFisicaBtn = document.getElementById('order-fisica-btn');
-            if (orderFisicaBtn) {
+            if (orderFisicaBtn && window.startOrder) {
                 orderFisicaBtn.addEventListener('click', () => {
-                    const type = orderFisicaBtn.getAttribute('data-type');
-                    window.startOrder(type);
+                    window.startOrder('FISICA');
                 });
             }
             
-            // Listener para limpiar el listener del panel al volver al menú principal
+            // 4. Listeners para el Modal (Cancelación)
+            const modalCancelBtn = document.getElementById('modal-cancel-btn');
+            if (modalCancelBtn) {
+                modalCancelBtn.addEventListener('click', window.closeModal);
+            }
+            const modalCloseBtn = document.getElementById('modal-close-btn');
+            if (modalCloseBtn) {
+                modalCloseBtn.addEventListener('click', window.closeModal);
+            }
+
+            // 5. Listener para limpiar el listener del panel al volver al menú principal (se repite por seguridad)
             document.querySelectorAll('[onclick="showView(\'main\')"]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     if (window.unsubscribeOrders) {
@@ -895,6 +876,12 @@
                     }
                 });
             });
+            
+             // 6. Listener para el formulario de pedido
+            const orderForm = document.getElementById('order-form');
+            if (orderForm) {
+                orderForm.addEventListener('submit', window.saveOrder);
+            }
         });
     </script>
 </body>
