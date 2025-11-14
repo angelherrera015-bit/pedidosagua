@@ -423,7 +423,8 @@
                 checkbox.type = 'checkbox';
                 checkbox.className = 'w-5 h-5 text-teal-600 bg-gray-100 border-gray-300 rounded focus:ring-teal-500';
                 checkbox.checked = order.isDelivered;
-                checkbox.disabled = !isAdmin; 
+                // CAMBIO CLAVE: Quitamos la restricción de solo admin.
+                checkbox.disabled = false; 
 
                 checkbox.addEventListener('change', () => window.toggleDeliveredStatus(id, checkbox.checked));
                 tdStatus.appendChild(checkbox);
@@ -488,7 +489,6 @@
         window.deleteOrder = async (id, name) => {
             if (window.currentUserRole !== 'ADMINISTRADOR') return;
 
-            // Almacenamos la función deleteDoc aquí para que el callback del modal la tenga
             const deleteDocFunc = async () => {
                 try {
                     // Accedemos a la función getOrdersCollectionRef() y doc() para la eliminación
@@ -504,7 +504,8 @@
         };
 
         window.toggleDeliveredStatus = async (id, isDelivered) => {
-            if (window.currentUserRole !== 'ADMINISTRADOR') return;
+            // Permitimos la ejecución para CUALQUIER usuario logueado
+            if (!window.currentUserRole) return; 
             try {
                 await updateDoc(doc(getOrdersCollectionRef(), id), { isDelivered });
             } catch (e) {
@@ -666,7 +667,7 @@
 </head>
 <body class="min-h-screen flex flex-col items-center justify-center p-4">
 
-    <div id="modal-overlay" class="hidden fixed inset-0 bg-gray-600 bg-opacity-75 z-50 items-center justify-center">
+    <div id="modal-overlay" class="fixed inset-0 bg-gray-600 bg-opacity-75 z-50 hidden items-center justify-center">
         <div class="bg-white rounded-xl shadow-2xl p-6 w-11/12 max-w-md">
             <h3 id="modal-title" class="text-lg font-semibold mb-3 text-teal-600">Título</h3>
             <p id="modal-message" class="text-sm text-gray-700 mb-6">Mensaje</p>
