@@ -7,14 +7,13 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
         // Importaciones de Firebase consolidadas y limpias
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { 
             getAuth, 
             signInAnonymously, 
             signInWithCustomToken, 
-            onAuthStateChanged,
-            signOut 
+            onAuthStateChanged 
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { 
             getFirestore, 
             doc, 
@@ -29,7 +28,7 @@
             getDocs,
             Timestamp,
             writeBatch,
-            setLogLevel 
+            setLogLevel // setLogLevel consolidado aquí
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // --- Variables Globales (Disponibles solo en este módulo) ---
@@ -78,10 +77,9 @@
         const PRICE_DOMICILIO = 10.00;
         const PRICE_FISICA = 9.00;
         
-        // Variables de estado local
-        // **NUEVO:** Cargar el rol desde localStorage al inicio para persistencia
-        window.currentUserRole = localStorage.getItem('currentUserRole'); 
+        // Variables de estado local, expuestas a window para que los listeners externos puedan acceder
         window.currentUserId = null;
+        window.currentUserRole = null;
         window.unsubscribeOrders = null; 
 
         // Inicialización de Firebase
@@ -168,12 +166,10 @@
         // Escucha el estado de autenticación (usa window.auth)
         onAuthStateChanged(window.auth, (user) => {
             document.getElementById('loading-message').style.display = 'none';
-
             if (user) {
                 window.currentUserId = user.uid;
 
-                // Si el usuario existe Y ya tenemos un rol guardado (por localStorage o por login)
-                if (window.currentUserRole) { 
+                if (window.currentUserRole) {
                     document.getElementById('welcome-message').textContent = `¡Bienvenido, ${window.currentUserRole}!`;
                     document.getElementById('user-info').textContent = `Usuario: ${window.currentUserRole} | ID de Sesión: ${window.currentUserId.substring(0, 8)}...`;
                     
@@ -184,7 +180,6 @@
                     }
                     showView('main');
                 } else {
-                    // Hay un usuario de Firebase (anónimo), pero el rol no se ha establecido.
                     showView('login');
                 }
             } else {
@@ -196,22 +191,18 @@
         
         // --- FUNCIONES CENTRALES (Expuestas globalmente para el último script) ---
 
-        // SOLUCIÓN CRÍTICA DE LOGIN
         window.login = async () => {
             if (!window.auth) {
                 window.showModal('Error Crítico', 'La aplicación no se inicializó. Recargue la página o revise la configuración de Firebase.', true);
                 return;
             }
             
-            // Usar el valor tal cual lo ingresó el usuario para que coincida con la clave del objeto.
-            const user = document.getElementById('login-user').value.trim(); 
+            const user = document.getElementById('login-user').value.toUpperCase().trim();
             const pass = document.getElementById('login-pass').value;
 
-            if (window.USER_PROFILES[user] === pass) { 
+            // La clave de la seguridad es verificar que 'user' coincida exactamente con la key del objeto
+            if (window.USER_PROFILES[user] === pass) {
                 window.currentUserRole = user; 
-                
-                // **NUEVO:** Guardar el rol en el almacenamiento local para persistencia
-                localStorage.setItem('currentUserRole', user); 
                 
                 if(window.auth.currentUser) {
                     document.getElementById('welcome-message').textContent = `¡Bienvenido, ${window.currentUserRole}!`;
@@ -233,29 +224,6 @@
             }
         };
 
-        // Función para cerrar sesión
-        window.logout = async () => {
-            try {
-                if (window.unsubscribeOrders) {
-                    window.unsubscribeOrders();
-                    window.unsubscribeOrders = null;
-                }
-                await signOut(window.auth);
-                
-                // **NUEVO:** Limpiar el rol guardado en localStorage
-                localStorage.removeItem('currentUserRole'); 
-                
-                window.currentUserRole = null;
-                window.currentUserId = null;
-                showView('login');
-                window.showModal('Sesión Cerrada', 'Has cerrado tu sesión exitosamente.', false);
-            } catch (error) {
-                console.error("Error al cerrar sesión:", error);
-                window.showModal('Error al Cerrar Sesión', 'No se pudo cerrar la sesión: ' + error.message, true);
-            }
-        };
-
-
         window.startOrder = (type) => {
             currentOrderType = type; // Usa variable local
             currentEditingOrderId = null; // Usa variable local
@@ -272,7 +240,27 @@
             let price = currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
             const total = (quantity * price).toFixed(2);
             document.getElementById('order-total').textContent = `Total: Q.${total}`;
-        }; 
+            window.updateWhatsAppButton();
+        };
+
+        window.updateWhatsAppButton = () => {
+            const phone = phoneInput.value.trim();
+            const name = document.getElementById('client-name').value.trim();
+            const quantity = parseInt(quantityInput.value) || 0;
+            const total = (quantity * (currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA));
+            const address = document.getElementById('client-address').value.trim();
+            const waButton = document.getElementById('whatsapp-form-btn');
+
+            if (phone.length >= 8 && name && quantity > 0) {
+                waButton.style.display = 'inline-flex';
+                waButton.onclick = () => {
+                    const link = window.generateWhatsAppLink(name, quantity, total, address, false);
+                    window.open(link, '_blank');
+                };
+            } else {
+                waButton.style.display = 'none';
+            }
+        };
 
         window.saveClient = async (phone, name, nit, address) => {
             const clientData = { phone, name, nit: nit || '', address: address || '' };
@@ -290,7 +278,6 @@
             return `https://wa.me/502${phoneInput.value.trim()}?text=${encodeURIComponent(message)}`;
         };
 
-        // Envío de WhatsApp Automático
         window.saveOrder = async (e) => {
             e.preventDefault();
             
@@ -311,7 +298,7 @@
             const now = Timestamp.now();
             const price = currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
             const total = (quantity * price);
-            const isEditing = !!currentEditingOrderId; 
+            const isEditing = !!currentEditingOrderId; // Usa variable local
 
             const orderData = {
                 phone,
@@ -319,7 +306,7 @@
                 quantity,
                 nit: nit || 'CF',
                 address,
-                type: currentOrderType, 
+                type: currentOrderType, // Usa variable local
                 pricePerJug: price,
                 total: total,
                 timestamp: now,
@@ -330,81 +317,55 @@
 
             try {
                 if (isEditing) {
-                    await updateDoc(doc(getOrdersCollectionRef(), currentEditingOrderId), orderData); 
+                    await updateDoc(doc(getOrdersCollectionRef(), currentEditingOrderId), orderData); // Usa variable local
                     window.showModal('Pedido Actualizado', 'El pedido ha sido actualizado correctamente.', false);
-                    showView('main');
                 } else {
                     const newDocRef = await addDoc(getOrdersCollectionRef(), orderData);
                     
                     const whatsappLink = window.generateWhatsAppLink(name, quantity, total, address, isEditing);
                     
-                    // 1. Abre la pestaña de WhatsApp automáticamente
-                    window.open(whatsappLink, '_blank');
-                    
-                    // 2. Muestra un modal de confirmación simple 
                     window.showModal(
                         'Pedido Registrado', 
-                        `<p>Se ha registrado el pedido con ID: ${newDocRef.id.substring(0, 6)} por Q.${total.toFixed(2)}.</p><p class="mt-2 font-semibold">Se abrió WhatsApp para el envío del mensaje de confirmación.</p>`, 
-                        false,
-                        () => { 
-                            window.closeModal(); 
-                            showView('main');
+                        `<p>Se ha registrado el pedido con ID: ${newDocRef.id.substring(0, 6)} por Q.${total.toFixed(2)}.</p><p class="mt-4 font-semibold">¿Desea enviar un mensaje de confirmación por WhatsApp?</p>`, 
+                        false, 
+                        () => {
+                            window.open(whatsappLink, '_blank');
+                            window.closeModal(); // Se cierra el modal después de la acción
                         },
-                        'Aceptar'
+                        'Enviar WhatsApp'
                     );
                 }
                 
                 orderForm.reset();
-                window.updateTotal(); // Actualiza total (a Q.0.00)
+                window.updateWhatsAppButton(); // Limpiar el botón después de guardar
+                showView('main'); 
             } catch (e) {
                 console.error("Error al guardar/actualizar el pedido:", e);
                 window.showModal('Error', `Ocurrió un error al guardar el pedido: ${e.message}`, true);
             }
         };
 
-        // Asegura la visibilidad del botón de CSV (Admin)
         window.openControlPanel = () => {
             if (window.unsubscribeOrders) {
                 window.unsubscribeOrders();
             }
-            
-            // Verificación del rol antes de cargar la vista
-            const adminButton = document.getElementById('export-csv-btn');
-            const isAdmin = window.currentUserRole === 'ADMINISTRADOR';
-            
-            // Aseguramos que el botón de CSV esté visible si eres administrador
-            if (adminButton) {
-                adminButton.style.display = isAdmin ? 'inline-block' : 'none';
-            }
-
             showView('panel');
             window.loadOrdersRealtime();
         };
 
-        // Modificación para RANGO DE FECHAS
         window.loadOrdersRealtime = () => {
             const ordersRef = getOrdersCollectionRef();
             const orderList = document.getElementById('order-list');
             const dailySalesTotal = document.getElementById('daily-sales-total');
-            
-            const dateFilterStart = document.getElementById('date-filter-start');
-            const dateFilterEnd = document.getElementById('date-filter-end');
+            const dateFilter = document.getElementById('date-filter');
 
-            if (!dateFilterStart.value || !dateFilterEnd.value) {
-                const today = new Date().toISOString().split('T')[0];
-                if (!dateFilterStart.value) dateFilterStart.value = today;
-                if (!dateFilterEnd.value) dateFilterEnd.value = today;
+            if (!dateFilter.value) {
+                dateFilter.value = new Date().toISOString().split('T')[0];
             }
             
-            const startDate = dateFilterStart.value;
-            const endDate = dateFilterEnd.value;
+            const selectedDate = dateFilter.value;
 
-            // Filtro por rango de fecha
-            const q = query(
-                ordersRef, 
-                where('date', '>=', startDate),
-                where('date', '<=', endDate)
-            );
+            const q = query(ordersRef, where('date', '==', selectedDate));
 
             if (window.unsubscribeOrders) {
                 window.unsubscribeOrders(); 
@@ -425,7 +386,7 @@
                 
                 orderList.appendChild(fragment);
 
-                dailySalesTotal.textContent = `Venta Total del Periodo (${startDate} a ${endDate}): Q.${totalVentas.toFixed(2)}`;
+                dailySalesTotal.textContent = `Venta Total del Día (${selectedDate}): Q.${totalVentas.toFixed(2)}`;
 
                 window.sortOrderList(orderList); 
             }, (error) => {
@@ -448,6 +409,7 @@
             const row = document.createElement('tr');
             row.className = 'border-b hover:bg-teal-50/50';
             
+            // Uso de encadenamiento opcional para un manejo más seguro del timestamp
             const timestamp = order.timestamp?.toDate ? order.timestamp.toDate().toISOString() : new Date().toISOString();
             
             row.setAttribute('data-id', id); 
@@ -477,7 +439,7 @@
             const tdActions = document.createElement('td');
             tdActions.className = 'p-3 whitespace-nowrap text-right space-x-2';
             
-            if (isAdmin) { // Control de visibilidad para Administrador
+            if (isAdmin) { // Si el rol es Administrador, se crean los botones.
                 const editBtn = document.createElement('button');
                 editBtn.className = 'text-blue-600 hover:text-blue-800 font-medium text-xs p-1 rounded-full hover:bg-blue-100 transition';
                 editBtn.innerHTML = '<svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-7-3l2.828-2.828a1 1 0 011.414 0L19 11m-9 9h.01M15 5v.01"></path></svg>';
@@ -513,8 +475,8 @@
 
         window.editOrder = (id, order) => {
             if (window.currentUserRole !== 'ADMINISTRADOR') return;
-            currentEditingOrderId = id; 
-            currentOrderType = order.type; 
+            currentEditingOrderId = id; // Usa variable local
+            currentOrderType = order.type; // Usa variable local
             
             document.getElementById('form-title').textContent = `EDITAR PEDIDO #${id.substring(0, 6)} (${order.type === 'DOMICILIO' ? 'Q.10.00' : 'Q.9.00'})`;
             document.getElementById('client-phone').value = order.phone;
@@ -531,16 +493,17 @@
             if (window.currentUserRole !== 'ADMINISTRADOR') return;
 
             const ordersRef = getOrdersCollectionRef();
+            const dbRef = window.db; // Mantenemos esta referencia aunque no se use directamente
 
             const deleteDocFunc = async () => {
                 try {
                     await deleteDoc(doc(ordersRef, id)); 
                     window.showModal('Eliminado', 'El pedido ha sido eliminado correctamente.', false);
-                    window.closeModal(); 
+                    window.closeModal(); // Cerrar el modal después de la acción
                 } catch (e) {
                     console.error("Error al eliminar pedido:", e);
                     if (e.code === 'permission-denied') {
-                         window.showModal('Error de Permisos', 'Fallo al eliminar: Permiso denegado. (Verifique sus Reglas de Firestore).', true);
+                         window.showModal('Error de Permisos', 'Fallo al eliminar: Permiso denegado. Recargue y vuelva a intentar.', true);
                     } else {
                         window.showModal('Error', 'No se pudo eliminar el pedido: ' + e.message, true);
                     }
@@ -560,27 +523,11 @@
             }
         };
 
-        // Modificación para EXPORTAR en RANGO DE FECHAS
         window.exportToCSV = async () => {
             if (window.currentUserRole !== 'ADMINISTRADOR') return;
             
-            const startDate = document.getElementById('date-filter-start').value;
-            const endDate = document.getElementById('date-filter-end').value;
-
-            if (!startDate || !endDate) {
-                 window.showModal('Error', 'Seleccione un rango de fechas para exportar.', true);
-                 return;
-            }
-
             try {
-                const ordersRef = getOrdersCollectionRef();
-                const q = query(
-                    ordersRef, 
-                    where('date', '>=', startDate),
-                    where('date', '<=', endDate)
-                );
-                
-                const snapshot = await getDocs(q);
+                const snapshot = await getDocs(getOrdersCollectionRef());
                 let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
                 data.sort((a, b) => {
@@ -618,7 +565,7 @@
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `Pedidos_CRISTAL_${startDate}_a_${endDate}.csv`;
+                a.download = `Pedidos_AGUA_CRISTAL_${new Date().toISOString().split('T')[0]}.csv`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -629,6 +576,7 @@
                 window.showModal('Error de Exportación', `No se pudieron obtener los datos para la exportación: ${e.message}`, true);
             }
         };
+
 
         // --- FUNCIONES UTILITARIAS ---
 
@@ -642,8 +590,9 @@
         
         // --- EVENT LISTENERS DINÁMICOS ---
         
+        // Escucha cambios en Teléfono, Nombre, Cantidad o Dirección para habilitar/actualizar botón de WhatsApp
         const updateOnInput = debounce(() => {
-            // Se eliminó la lógica de updateWhatsAppButton
+            window.updateWhatsAppButton();
         }, 300);
 
         phoneInput.addEventListener('input', async () => {
@@ -664,6 +613,7 @@
                         document.getElementById('autofill-status').classList.remove('text-red-500', 'text-teal-500');
                         document.getElementById('autofill-status').classList.add('text-green-500');
                     } else {
+                        // Limpiamos los campos solo si no contienen datos ya ingresados
                         if (!document.getElementById('client-name').value && !document.getElementById('client-nit').value && !document.getElementById('client-address').value) {
                              document.getElementById('client-name').value = '';
                              document.getElementById('client-nit').value = '';
@@ -686,22 +636,20 @@
 
         document.getElementById('client-name').addEventListener('input', updateOnInput);
         document.getElementById('client-address').addEventListener('input', updateOnInput);
-        document.getElementById('quantity').addEventListener('input', window.updateTotal);
+        document.getElementById('quantity').addEventListener('input', window.updateTotal); // Añadimos listener de cantidad
 
-        // Listener para los filtros de fecha (Rango de Fechas)
-        document.getElementById('date-filter-start').addEventListener('change', () => {
+        // Listener para el filtro de fecha
+        document.getElementById('date-filter').addEventListener('change', () => {
             window.loadOrdersRealtime(); 
         });
-        document.getElementById('date-filter-end').addEventListener('change', () => {
-            window.loadOrdersRealtime(); 
-        });
+        
+        // Se ha ELIMINADO la llamada a window.handleAuth();
     </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f0fdfa; /* Teal 50 - Fondo Suave */
-            transition: background-color 0.3s ease; /* Transición para sensación dinámica */
+            background-color: #f0fdfa; /* Teal 50 */
         }
         .container-card {
             background-color: white;
@@ -710,15 +658,13 @@
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
             max-width: 95%;
             width: 500px;
-            transition: all 0.3s ease;
         }
         .teal-button {
             transition: all 0.2s;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Sombra estándar */
         }
         .teal-button:hover {
-            transform: translateY(-2px); /* Efecto 3D al pasar el mouse */
-            box-shadow: 0 6px 10px rgba(0, 0, 0, 0.15); /* Sombra más fuerte al hover */
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
         }
         /* Estilo para el panel de control grande */
         #control-panel-view {
@@ -726,10 +672,6 @@
             max-width: 1200px;
             height: auto;
             min-height: 100vh;
-        }
-        /* Añade una transición a los elementos que cambian de color */
-        .hover\:bg-teal-50\/50:hover {
-            background-color: rgba(204, 251, 241, 0.5); /* Color Teal suave */
         }
     </style>
 </head>
@@ -789,14 +731,8 @@
             <p id="welcome-message" class="text-xl text-teal-600 font-semibold mb-4">¡Bienvenido!</p>
             <p id="user-info" class="text-xs text-gray-500 mb-6"></p>
             
-            <button id="logout-btn"
-                    class="bg-red-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-600 transition mb-4 inline-flex items-center justify-center space-x-2">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-                <span>Cerrar Sesión</span>
-            </button>
-            
             <button id="view-history-btn"
-                    class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition inline-flex items-center justify-center space-x-2">
+                    class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition flex items-center justify-center space-x-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 <span>Ver Historial de Pedidos</span>
             </button>
@@ -860,8 +796,15 @@
                                 placeholder="Calle, Número, Zona, Referencias."></textarea>
                 </div>
 
-                <div class="flex justify-end items-center pt-4">
-                    <span id="order-total" class="text-2xl font-extrabold text-teal-800 mr-4">Total: Q.0.00</span>
+                <button type="button" id="whatsapp-form-btn" style="display: none;"
+                        class="w-full flex items-center justify-center space-x-2 py-3 bg-green-500 text-white font-bold rounded-lg teal-button hover:bg-green-600 transition">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12.02 0c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm4.332 17.518c-.287.185-1.144.62-1.996.945-.851.325-1.748.513-2.673.513-4.103 0-7.447-3.344-7.447-7.447s3.344-7.447 7.447-7.447c2.278 0 4.296 1.053 5.672 2.766l.006.006.006.006c.307.393.447.886.417 1.378-.052.883-.717 1.548-1.548 1.548h-.002c-.504 0-.974-.247-1.294-.653-.294-.374-.62-.803-1.006-1.127-.514-.447-1.229-.694-1.996-.694-.851 0-1.748.247-2.673.74-.851.468-1.548 1.006-1.548 1.996 0 .851.62 1.996 1.748 2.51.514.247 1.229.37 1.996.37 1.006 0 1.996-.447 2.673-.993.514-.447.851-.883 1.294-1.229.374-.325.803-.513 1.294-.513.851 0 1.548.62 1.548 1.548 0 .504-.247.974-.653 1.294z"/></svg>
+                    Enviar Mensaje de WhatsApp
+                </button>
+
+
+                <div class="flex justify-between items-center pt-4">
+                    <span id="order-total" class="text-2xl font-extrabold text-teal-800">Total: Q.0.00</span>
                     <button type="submit" 
                             class="px-6 py-3 bg-teal-600 text-white font-bold rounded-lg text-lg teal-button hover:bg-teal-700">
                         GUARDAR PEDIDO
@@ -894,16 +837,12 @@
         
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-teal-100 p-4 rounded-xl mb-6 shadow-md">
             <div class="flex items-center space-x-3 mb-4 sm:mb-0">
-                <label for="date-filter-start" class="font-semibold text-teal-800">Desde:</label>
-                <input type="date" id="date-filter-start" 
-                        class="p-2 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500">
-
-                <label for="date-filter-end" class="font-semibold text-teal-800">Hasta:</label>
-                <input type="date" id="date-filter-end" 
+                <label for="date-filter" class="font-semibold text-teal-800">Filtrar por Fecha:</label>
+                <input type="date" id="date-filter" 
                         class="p-2 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500">
             </div>
             <p id="daily-sales-total" class="text-xl font-extrabold text-teal-900 bg-teal-200 px-4 py-2 rounded-lg">
-                Venta Total del Periodo: Q.0.00 
+                Venta Total del Día: Q.0.00
             </p>
         </div>
 
@@ -933,11 +872,12 @@
         // --- Conexión de Event Listeners al cargar el DOM ---
         document.addEventListener('DOMContentLoaded', () => {
             
-            // 1. FORMULARIO DE LOGIN (Conectado al evento submit del formulario)
+            // 1. FORMULARIO DE LOGIN (MODIFICADO)
             const loginForm = document.getElementById('login-form');
             if (loginForm && window.login) {
+                // Escucha el evento 'submit' del formulario (incluye presionar Enter)
                 loginForm.addEventListener('submit', (e) => { 
-                    e.preventDefault();
+                    e.preventDefault(); // Previene el envío por defecto del formulario
                     window.login();
                 });
             }
@@ -947,14 +887,8 @@
             if (viewHistoryBtn && window.openControlPanel) {
                 viewHistoryBtn.addEventListener('click', window.openControlPanel);
             }
-            
-            // 3. Botón de Cerrar Sesión
-            const logoutBtn = document.getElementById('logout-btn');
-            if (logoutBtn && window.logout) {
-                logoutBtn.addEventListener('click', window.logout);
-            }
 
-            // 4. Botones de Tipo de Pedido (Menú Principal)
+            // 3. Botones de Tipo de Pedido (Menú Principal)
             const orderDomicilioBtn = document.getElementById('order-domicilio-btn');
             if (orderDomicilioBtn && window.startOrder) {
                 orderDomicilioBtn.addEventListener('click', () => {
@@ -969,7 +903,7 @@
                 });
             }
             
-            // 5. Listeners para el Modal
+            // 4. Listeners para el Modal (Cancelación)
             const modalCancelBtn = document.getElementById('modal-cancel-btn');
             if (modalCancelBtn) {
                 modalCancelBtn.addEventListener('click', window.closeModal);
@@ -979,7 +913,7 @@
                 modalCloseBtn.addEventListener('click', window.closeModal);
             }
 
-            // 6. Listener para limpiar el listener del panel al volver al menú principal
+            // 5. Listener para limpiar el listener del panel al volver al menú principal
             document.querySelectorAll('[onclick="showView(\'main\')"]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     if (window.unsubscribeOrders) {
@@ -989,22 +923,10 @@
                 });
             });
             
-            // 7. Listener para el formulario de pedido
+            // 6. Listener para el formulario de pedido
             const orderForm = document.getElementById('order-form');
             if (orderForm) {
                 orderForm.addEventListener('submit', window.saveOrder);
-            }
-            
-            // 8. Listener de Botón de Confirmación del Modal
-            const modalConfirmBtn = document.getElementById('modal-confirm-btn');
-            if (modalConfirmBtn) {
-                modalConfirmBtn.addEventListener('click', () => {
-                    if (window.confirmAction) {
-                        window.confirmAction();
-                    } else {
-                        window.closeModal();
-                    }
-                });
             }
         });
     </script>
