@@ -11,7 +11,7 @@
         import { 
             getAuth, 
             signInAnonymously, 
-            signOut, // Añadido para cerrar sesión
+            signOut, 
             onAuthStateChanged 
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { 
@@ -92,7 +92,7 @@
         // --- UTILIDADES DE FIREBASE ---
         const getClientsCollectionRef = () => collection(window.db, `artifacts/${appId}/public/data/clients`);
         const getOrdersCollectionRef = () => collection(window.db, `artifacts/${appId}/public/data/orders`);
-        const getRolesCollectionRef = () => collection(window.db, `roles`); // Nueva colección para roles
+        const getRolesCollectionRef = () => collection(window.db, `roles`); 
         
         // --- ESTADO GLOBAL Y VISTAS ---
         const views = {
@@ -122,7 +122,7 @@
                 }
             }
         };
-        window.showView = showView; // EXPOSICIÓN CLAVE
+        window.showView = showView; 
 
         // --- MODAL DE ALERTA/CONFIRMACIÓN (Expuesto globalmente) ---
         window.showModal = (title, message, isError, onConfirm = null, customConfirmText = 'Confirmar') => {
@@ -175,7 +175,6 @@
                         await setDoc(roleDocRef, { role: window.currentUserRole, lastLogin: Timestamp.now() }, { merge: true });
                     } catch (e) {
                         console.error("Error al guardar el rol en Firestore:", e);
-                        // Mostrar el menú de todos modos si la validación local fue exitosa
                     }
 
                     document.getElementById('welcome-message').textContent = `¡Bienvenido, ${window.currentUserRole}!`;
@@ -198,7 +197,7 @@
             }
         });
         
-        // --- FUNCIONES CENTRALES (Expuestas globalmente para el último script) ---
+        // --- FUNCIONES CENTRALES ---
 
         // Función de Log Out
         window.logout = async () => {
@@ -223,7 +222,7 @@
                 return;
             }
             
-            const user = document.getElementById('login-user').value.toUpperCase().trim(); // Importante: Mayúsculas
+            const user = document.getElementById('login-user').value.toUpperCase().trim(); 
             const pass = document.getElementById('login-pass').value;
 
             // Verifica la credencial contra el objeto hardcodeado (Validación local)
@@ -231,13 +230,11 @@
                 window.currentUserRole = user; // Guarda el rol localmente
                 
                 try {
-                    // Si no hay usuario de Firebase, iniciamos sesión anónima (o la usamos si ya existe)
+                    // Iniciar sesión anónima (o la usa si ya existe)
                     if(!window.auth.currentUser) {
                          await signInAnonymously(window.auth);
                     }
                     
-                    // El onAuthStateChanged se encargará de guardar el rol en Firestore y mostrar la vista 'main'
-                    // Forzamos la lógica del listener para la respuesta instantánea
                     window.currentUserId = window.auth.currentUser.uid;
 
                     // 1. Guardar el rol inmediatamente en Firestore para las Reglas de Seguridad
@@ -267,8 +264,8 @@
         };
 
         window.startOrder = (type) => {
-            currentOrderType = type; // Usa variable local
-            currentEditingOrderId = null; // Usa variable local
+            currentOrderType = type; 
+            currentEditingOrderId = null; 
             document.getElementById('form-title').textContent = `NUEVO PEDIDO ${type === 'DOMICILIO' ? 'A DOMICILIO (Q.10.00)' : 'ENTREGA FÍSICA (Q.9.00)'}`;
             orderForm.reset();
             document.getElementById('quantity').value = 1; 
@@ -468,7 +465,7 @@
             row.setAttribute('data-timestamp', timestamp); 
 
             const isAdmin = window.currentUserRole === 'ADMINISTRADOR';
-            const canModifyStatus = isAdmin || window.currentUserRole === 'USUARIO 1'; // <-- CAMBIO APLICADO AQUÍ
+            const canModifyStatus = isAdmin || window.currentUserRole === 'USUARIO 1'; // Permiso de entrega
             const time = new Date(timestamp).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' });
             
             // Columna de Estado (Checkbox)
@@ -480,7 +477,7 @@
                 checkbox.type = 'checkbox';
                 checkbox.className = 'w-5 h-5 text-teal-600 bg-gray-100 border-gray-300 rounded focus:ring-teal-500';
                 checkbox.checked = order.isDelivered;
-                checkbox.disabled = !canModifyStatus; // Solo ADMIN o USUARIO 1 puede marcar/desmarcar
+                checkbox.disabled = !canModifyStatus; // Habilitado si es ADMIN o USUARIO 1
 
                 checkbox.addEventListener('change', () => window.toggleDeliveredStatus(id, checkbox.checked));
                 tdStatus.appendChild(checkbox);
@@ -492,7 +489,7 @@
             const tdActions = document.createElement('td');
             tdActions.className = 'p-3 whitespace-nowrap text-right space-x-2';
             
-            if (isAdmin) { // Control de visibilidad para Administrador (Editar y Eliminar)
+            if (isAdmin) { // Control de visibilidad para Administrador
                 const editBtn = document.createElement('button');
                 editBtn.className = 'text-blue-600 hover:text-blue-800 font-medium text-xs p-1 rounded-full hover:bg-blue-100 transition';
                 editBtn.innerHTML = '<svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-7-3l2.828-2.828a1 1 0 011.414 0L19 11m-9 9h.01M15 5v.01"></path></svg>';
@@ -572,7 +569,7 @@
         };
 
         window.toggleDeliveredStatus = async (id, isDelivered) => {
-            const canModifyStatus = window.currentUserRole === 'ADMINISTRADOR' || window.currentUserRole === 'USUARIO 1'; // <-- CAMBIO APLICADO AQUÍ
+            const canModifyStatus = window.currentUserRole === 'ADMINISTRADOR' || window.currentUserRole === 'USUARIO 1'; 
 
             if (!canModifyStatus) {
                 // Si no tiene el permiso, revierte el checkbox si no es el estado actual
@@ -582,7 +579,6 @@
                 return;
             }
             try {
-                // La regla de seguridad de Firebase ahora permite la actualización si el rol es ADMIN o USUARIO 1.
                 await updateDoc(doc(getOrdersCollectionRef(), id), { isDelivered });
             } catch (e) {
                 console.error("Error al actualizar estado de entrega:", e);
