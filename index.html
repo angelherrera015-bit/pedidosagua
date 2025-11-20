@@ -333,6 +333,7 @@
                         () => {
                             window.open(whatsappLink, '_blank');
                             window.closeModal(); 
+                            showView('main'); // Volver al menú después de confirmar WhatsApp
                         },
                         'Enviar WhatsApp'
                     );
@@ -340,17 +341,27 @@
                 
                 orderForm.reset();
                 window.updateWhatsAppButton(); 
-                // No llamamos showView('main') aquí; permitimos que el usuario interactúe con el modal.
             } catch (e) {
                 console.error("Error al guardar/actualizar el pedido:", e);
                 window.showModal('Error', `Ocurrió un error al guardar el pedido: ${e.message}`, true);
             }
         };
 
+        // CORRECCIÓN FINAL: Asegura la visibilidad del botón de CSV (Admin)
         window.openControlPanel = () => {
             if (window.unsubscribeOrders) {
                 window.unsubscribeOrders();
             }
+            
+            // Verificación del rol antes de cargar la vista
+            const adminButton = document.getElementById('export-csv-btn');
+            const isAdmin = window.currentUserRole === 'ADMINISTRADOR';
+            
+            // Aseguramos que el botón de CSV esté visible si eres administrador
+            if (adminButton) {
+                adminButton.style.display = isAdmin ? 'inline-block' : 'none';
+            }
+
             showView('panel');
             window.loadOrdersRealtime();
         };
