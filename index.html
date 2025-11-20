@@ -241,27 +241,7 @@
             let price = currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
             const total = (quantity * price).toFixed(2);
             document.getElementById('order-total').textContent = `Total: Q.${total}`;
-            window.updateWhatsAppButton();
-        };
-
-        window.updateWhatsAppButton = () => {
-            const phone = phoneInput.value.trim();
-            const name = document.getElementById('client-name').value.trim();
-            const quantity = parseInt(quantityInput.value) || 0;
-            const total = (quantity * (currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA));
-            const address = document.getElementById('client-address').value.trim();
-            const waButton = document.getElementById('whatsapp-form-btn');
-
-            if (phone.length >= 8 && name && quantity > 0) {
-                waButton.style.display = 'inline-flex';
-                waButton.onclick = () => {
-                    const link = window.generateWhatsAppLink(name, quantity, total, address, false);
-                    window.open(link, '_blank');
-                };
-            } else {
-                waButton.style.display = 'none';
-            }
-        };
+        }; // Se eliminó la llamada a updateWhatsAppButton
 
         window.saveClient = async (phone, name, nit, address) => {
             const clientData = { phone, name, nit: nit || '', address: address || '' };
@@ -279,6 +259,7 @@
             return `https://wa.me/502${phoneInput.value.trim()}?text=${encodeURIComponent(message)}`;
         };
 
+        // MODIFICACIÓN CRÍTICA: Envío de WhatsApp Automático
         window.saveOrder = async (e) => {
             e.preventDefault();
             
@@ -320,27 +301,30 @@
                 if (isEditing) {
                     await updateDoc(doc(getOrdersCollectionRef(), currentEditingOrderId), orderData); 
                     window.showModal('Pedido Actualizado', 'El pedido ha sido actualizado correctamente.', false);
+                    showView('main');
                 } else {
                     const newDocRef = await addDoc(getOrdersCollectionRef(), orderData);
                     
                     const whatsappLink = window.generateWhatsAppLink(name, quantity, total, address, isEditing);
                     
-                    // Mostrar modal de confirmación de WhatsApp para todos los usuarios
+                    // 1. Abre la pestaña de WhatsApp automáticamente
+                    window.open(whatsappLink, '_blank');
+                    
+                    // 2. Muestra un modal de confirmación simple 
                     window.showModal(
                         'Pedido Registrado', 
-                        `<p>Se ha registrado el pedido con ID: ${newDocRef.id.substring(0, 6)} por Q.${total.toFixed(2)}.</p><p class="mt-4 font-semibold">¿Desea enviar un mensaje de confirmación por WhatsApp?</p>`, 
-                        false, 
-                        () => {
-                            window.open(whatsappLink, '_blank');
+                        `<p>Se ha registrado el pedido con ID: ${newDocRef.id.substring(0, 6)} por Q.${total.toFixed(2)}.</p><p class="mt-2 font-semibold">Se abrió WhatsApp para el envío del mensaje de confirmación.</p>`, 
+                        false,
+                        () => { 
                             window.closeModal(); 
-                            showView('main'); // Volver al menú después de confirmar WhatsApp
+                            showView('main');
                         },
-                        'Enviar WhatsApp'
+                        'Aceptar'
                     );
                 }
                 
                 orderForm.reset();
-                window.updateWhatsAppButton(); 
+                window.updateTotal(); // Actualiza total (a Q.0.00)
             } catch (e) {
                 console.error("Error al guardar/actualizar el pedido:", e);
                 window.showModal('Error', `Ocurrió un error al guardar el pedido: ${e.message}`, true);
@@ -628,7 +612,7 @@
         // --- EVENT LISTENERS DINÁMICOS ---
         
         const updateOnInput = debounce(() => {
-            window.updateWhatsAppButton();
+            // Se eliminó la lógica de updateWhatsAppButton
         }, 300);
 
         phoneInput.addEventListener('input', async () => {
@@ -831,16 +815,8 @@
                                 class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
                                 placeholder="Calle, Número, Zona, Referencias."></textarea>
                 </div>
-
-                <button type="button" id="whatsapp-form-btn" style="display: none;"
-                        class="w-full flex items-center justify-center space-x-2 py-3 bg-green-500 text-white font-bold rounded-lg teal-button hover:bg-green-600 transition">
-                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12.02 0c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm4.332 17.518c-.287.185-1.144.62-1.996.945-.851.325-1.748.513-2.673.513-4.103 0-7.447-3.344-7.447-7.447s3.344-7.447 7.447-7.447c2.278 0 4.296 1.053 5.672 2.766l.006.006.006.006c.307.393.447.886.417 1.378-.052.883-.717 1.548-1.548 1.548h-.002c-.504 0-.974-.247-1.294-.653-.294-.374-.62-.803-1.006-1.127-.514-.447-1.229-.694-1.996-.694-.851 0-1.748.247-2.673.74-.851.468-1.548 1.006-1.548 1.996 0 .851.62 1.996 1.748 2.51.514.247 1.229.37 1.996.37 1.006 0 1.996-.447 2.673-.993.514-.447.851-.883 1.294-1.229.374-.325.803-.513 1.294-.513.851 0 1.548.62 1.548 1.548 0 .504-.247.974-.653 1.294z"/></svg>
-                    Enviar Mensaje de WhatsApp
-                </button>
-
-
-                <div class="flex justify-between items-center pt-4">
-                    <span id="order-total" class="text-2xl font-extrabold text-teal-800">Total: Q.0.00</span>
+                <div class="flex justify-end items-center pt-4">
+                    <span id="order-total" class="text-2xl font-extrabold text-teal-800 mr-4">Total: Q.0.00</span>
                     <button type="submit" 
                             class="px-6 py-3 bg-teal-600 text-white font-bold rounded-lg text-lg teal-button hover:bg-teal-700">
                         GUARDAR PEDIDO
@@ -979,6 +955,14 @@
                     }
                 });
             }
+            
+            // 8. Listener para los filtros de fecha (Rango de Fechas)
+            document.getElementById('date-filter-start').addEventListener('change', () => {
+                window.loadOrdersRealtime(); 
+            });
+            document.getElementById('date-filter-end').addEventListener('change', () => {
+                window.loadOrdersRealtime(); 
+            });
         });
     </script>
 </body>
