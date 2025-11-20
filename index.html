@@ -28,7 +28,7 @@
             getDocs,
             Timestamp,
             writeBatch,
-            setLogLevel // setLogLevel consolidado aquí
+            setLogLevel 
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // --- Variables Globales (Disponibles solo en este módulo) ---
@@ -197,17 +197,18 @@
                 return;
             }
             
-            const user = document.getElementById('login-user').value.toUpperCase().trim();
+            const user = document.getElementById('login-user').value.toUpperCase().trim(); // Importante: Mayúsculas
             const pass = document.getElementById('login-pass').value;
 
-            // La clave de la seguridad es verificar que 'user' coincida exactamente con la key del objeto
-            if (window.USER_PROFILES[user] === pass) {
+            // Verifica la credencial contra el objeto hardcodeado
+            if (window.USER_PROFILES[user] === pass) { 
                 window.currentUserRole = user; 
                 
                 if(window.auth.currentUser) {
                     document.getElementById('welcome-message').textContent = `¡Bienvenido, ${window.currentUserRole}!`;
                     document.getElementById('user-info').textContent = `Usuario: ${window.currentUserRole} | ID de Sesión: ${window.auth.currentUser.uid.substring(0, 8)}...`;
                     
+                    // Control de visibilidad para botones de administrador
                     const adminButton = document.getElementById('export-csv-btn');
                     const isAdmin = window.currentUserRole === 'ADMINISTRADOR';
                     if (adminButton) {
@@ -298,7 +299,7 @@
             const now = Timestamp.now();
             const price = currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
             const total = (quantity * price);
-            const isEditing = !!currentEditingOrderId; // Usa variable local
+            const isEditing = !!currentEditingOrderId; 
 
             const orderData = {
                 phone,
@@ -306,7 +307,7 @@
                 quantity,
                 nit: nit || 'CF',
                 address,
-                type: currentOrderType, // Usa variable local
+                type: currentOrderType, 
                 pricePerJug: price,
                 total: total,
                 timestamp: now,
@@ -317,28 +318,29 @@
 
             try {
                 if (isEditing) {
-                    await updateDoc(doc(getOrdersCollectionRef(), currentEditingOrderId), orderData); // Usa variable local
+                    await updateDoc(doc(getOrdersCollectionRef(), currentEditingOrderId), orderData); 
                     window.showModal('Pedido Actualizado', 'El pedido ha sido actualizado correctamente.', false);
                 } else {
                     const newDocRef = await addDoc(getOrdersCollectionRef(), orderData);
                     
                     const whatsappLink = window.generateWhatsAppLink(name, quantity, total, address, isEditing);
                     
+                    // Mostrar modal de confirmación de WhatsApp para todos los usuarios
                     window.showModal(
                         'Pedido Registrado', 
                         `<p>Se ha registrado el pedido con ID: ${newDocRef.id.substring(0, 6)} por Q.${total.toFixed(2)}.</p><p class="mt-4 font-semibold">¿Desea enviar un mensaje de confirmación por WhatsApp?</p>`, 
                         false, 
                         () => {
                             window.open(whatsappLink, '_blank');
-                            window.closeModal(); // Se cierra el modal después de la acción
+                            window.closeModal(); 
                         },
                         'Enviar WhatsApp'
                     );
                 }
                 
                 orderForm.reset();
-                window.updateWhatsAppButton(); // Limpiar el botón después de guardar
-                showView('main'); 
+                window.updateWhatsAppButton(); 
+                // No llamamos showView('main') aquí; permitimos que el usuario interactúe con el modal.
             } catch (e) {
                 console.error("Error al guardar/actualizar el pedido:", e);
                 window.showModal('Error', `Ocurrió un error al guardar el pedido: ${e.message}`, true);
@@ -353,19 +355,30 @@
             window.loadOrdersRealtime();
         };
 
+        // Modificación para RANGO DE FECHAS
         window.loadOrdersRealtime = () => {
             const ordersRef = getOrdersCollectionRef();
             const orderList = document.getElementById('order-list');
             const dailySalesTotal = document.getElementById('daily-sales-total');
-            const dateFilter = document.getElementById('date-filter');
+            
+            const dateFilterStart = document.getElementById('date-filter-start');
+            const dateFilterEnd = document.getElementById('date-filter-end');
 
-            if (!dateFilter.value) {
-                dateFilter.value = new Date().toISOString().split('T')[0];
+            if (!dateFilterStart.value || !dateFilterEnd.value) {
+                const today = new Date().toISOString().split('T')[0];
+                if (!dateFilterStart.value) dateFilterStart.value = today;
+                if (!dateFilterEnd.value) dateFilterEnd.value = today;
             }
             
-            const selectedDate = dateFilter.value;
+            const startDate = dateFilterStart.value;
+            const endDate = dateFilterEnd.value;
 
-            const q = query(ordersRef, where('date', '==', selectedDate));
+            // Filtro por rango de fecha
+            const q = query(
+                ordersRef, 
+                where('date', '>=', startDate),
+                where('date', '<=', endDate)
+            );
 
             if (window.unsubscribeOrders) {
                 window.unsubscribeOrders(); 
@@ -386,7 +399,7 @@
                 
                 orderList.appendChild(fragment);
 
-                dailySalesTotal.textContent = `Venta Total del Día (${selectedDate}): Q.${totalVentas.toFixed(2)}`;
+                dailySalesTotal.textContent = `Venta Total del Periodo (${startDate} a ${endDate}): Q.${totalVentas.toFixed(2)}`;
 
                 window.sortOrderList(orderList); 
             }, (error) => {
@@ -409,7 +422,6 @@
             const row = document.createElement('tr');
             row.className = 'border-b hover:bg-teal-50/50';
             
-            // Uso de encadenamiento opcional para un manejo más seguro del timestamp
             const timestamp = order.timestamp?.toDate ? order.timestamp.toDate().toISOString() : new Date().toISOString();
             
             row.setAttribute('data-id', id); 
@@ -439,7 +451,7 @@
             const tdActions = document.createElement('td');
             tdActions.className = 'p-3 whitespace-nowrap text-right space-x-2';
             
-            if (isAdmin) { // Si el rol es Administrador, se crean los botones.
+            if (isAdmin) { // Control de visibilidad para Administrador
                 const editBtn = document.createElement('button');
                 editBtn.className = 'text-blue-600 hover:text-blue-800 font-medium text-xs p-1 rounded-full hover:bg-blue-100 transition';
                 editBtn.innerHTML = '<svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-7-3l2.828-2.828a1 1 0 011.414 0L19 11m-9 9h.01M15 5v.01"></path></svg>';
@@ -475,8 +487,8 @@
 
         window.editOrder = (id, order) => {
             if (window.currentUserRole !== 'ADMINISTRADOR') return;
-            currentEditingOrderId = id; // Usa variable local
-            currentOrderType = order.type; // Usa variable local
+            currentEditingOrderId = id; 
+            currentOrderType = order.type; 
             
             document.getElementById('form-title').textContent = `EDITAR PEDIDO #${id.substring(0, 6)} (${order.type === 'DOMICILIO' ? 'Q.10.00' : 'Q.9.00'})`;
             document.getElementById('client-phone').value = order.phone;
@@ -493,17 +505,16 @@
             if (window.currentUserRole !== 'ADMINISTRADOR') return;
 
             const ordersRef = getOrdersCollectionRef();
-            const dbRef = window.db; // Mantenemos esta referencia aunque no se use directamente
 
             const deleteDocFunc = async () => {
                 try {
                     await deleteDoc(doc(ordersRef, id)); 
                     window.showModal('Eliminado', 'El pedido ha sido eliminado correctamente.', false);
-                    window.closeModal(); // Cerrar el modal después de la acción
+                    window.closeModal(); 
                 } catch (e) {
                     console.error("Error al eliminar pedido:", e);
                     if (e.code === 'permission-denied') {
-                         window.showModal('Error de Permisos', 'Fallo al eliminar: Permiso denegado. Recargue y vuelva a intentar.', true);
+                         window.showModal('Error de Permisos', 'Fallo al eliminar: Permiso denegado. (Verifique sus Reglas de Firestore).', true);
                     } else {
                         window.showModal('Error', 'No se pudo eliminar el pedido: ' + e.message, true);
                     }
@@ -523,11 +534,27 @@
             }
         };
 
+        // Modificación para EXPORTAR en RANGO DE FECHAS
         window.exportToCSV = async () => {
             if (window.currentUserRole !== 'ADMINISTRADOR') return;
             
+            const startDate = document.getElementById('date-filter-start').value;
+            const endDate = document.getElementById('date-filter-end').value;
+
+            if (!startDate || !endDate) {
+                 window.showModal('Error', 'Seleccione un rango de fechas para exportar.', true);
+                 return;
+            }
+
             try {
-                const snapshot = await getDocs(getOrdersCollectionRef());
+                const ordersRef = getOrdersCollectionRef();
+                const q = query(
+                    ordersRef, 
+                    where('date', '>=', startDate),
+                    where('date', '<=', endDate)
+                );
+                
+                const snapshot = await getDocs(q);
                 let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
                 data.sort((a, b) => {
@@ -565,7 +592,7 @@
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `Pedidos_AGUA_CRISTAL_${new Date().toISOString().split('T')[0]}.csv`;
+                a.download = `Pedidos_CRISTAL_${startDate}_a_${endDate}.csv`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -576,7 +603,6 @@
                 window.showModal('Error de Exportación', `No se pudieron obtener los datos para la exportación: ${e.message}`, true);
             }
         };
-
 
         // --- FUNCIONES UTILITARIAS ---
 
@@ -590,7 +616,6 @@
         
         // --- EVENT LISTENERS DINÁMICOS ---
         
-        // Escucha cambios en Teléfono, Nombre, Cantidad o Dirección para habilitar/actualizar botón de WhatsApp
         const updateOnInput = debounce(() => {
             window.updateWhatsAppButton();
         }, 300);
@@ -613,7 +638,6 @@
                         document.getElementById('autofill-status').classList.remove('text-red-500', 'text-teal-500');
                         document.getElementById('autofill-status').classList.add('text-green-500');
                     } else {
-                        // Limpiamos los campos solo si no contienen datos ya ingresados
                         if (!document.getElementById('client-name').value && !document.getElementById('client-nit').value && !document.getElementById('client-address').value) {
                              document.getElementById('client-name').value = '';
                              document.getElementById('client-nit').value = '';
@@ -636,14 +660,15 @@
 
         document.getElementById('client-name').addEventListener('input', updateOnInput);
         document.getElementById('client-address').addEventListener('input', updateOnInput);
-        document.getElementById('quantity').addEventListener('input', window.updateTotal); // Añadimos listener de cantidad
+        document.getElementById('quantity').addEventListener('input', window.updateTotal);
 
-        // Listener para el filtro de fecha
-        document.getElementById('date-filter').addEventListener('change', () => {
+        // Listener para los filtros de fecha (Rango de Fechas)
+        document.getElementById('date-filter-start').addEventListener('change', () => {
             window.loadOrdersRealtime(); 
         });
-        
-        // Se ha ELIMINADO la llamada a window.handleAuth();
+        document.getElementById('date-filter-end').addEventListener('change', () => {
+            window.loadOrdersRealtime(); 
+        });
     </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
@@ -837,12 +862,16 @@
         
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-teal-100 p-4 rounded-xl mb-6 shadow-md">
             <div class="flex items-center space-x-3 mb-4 sm:mb-0">
-                <label for="date-filter" class="font-semibold text-teal-800">Filtrar por Fecha:</label>
-                <input type="date" id="date-filter" 
+                <label for="date-filter-start" class="font-semibold text-teal-800">Desde:</label>
+                <input type="date" id="date-filter-start" 
+                        class="p-2 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500">
+
+                <label for="date-filter-end" class="font-semibold text-teal-800">Hasta:</label>
+                <input type="date" id="date-filter-end" 
                         class="p-2 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500">
             </div>
             <p id="daily-sales-total" class="text-xl font-extrabold text-teal-900 bg-teal-200 px-4 py-2 rounded-lg">
-                Venta Total del Día: Q.0.00
+                Venta Total del Periodo: Q.0.00 
             </p>
         </div>
 
@@ -872,12 +901,11 @@
         // --- Conexión de Event Listeners al cargar el DOM ---
         document.addEventListener('DOMContentLoaded', () => {
             
-            // 1. FORMULARIO DE LOGIN (MODIFICADO)
+            // 1. FORMULARIO DE LOGIN (Conectado al evento submit del formulario)
             const loginForm = document.getElementById('login-form');
             if (loginForm && window.login) {
-                // Escucha el evento 'submit' del formulario (incluye presionar Enter)
                 loginForm.addEventListener('submit', (e) => { 
-                    e.preventDefault(); // Previene el envío por defecto del formulario
+                    e.preventDefault();
                     window.login();
                 });
             }
@@ -903,7 +931,7 @@
                 });
             }
             
-            // 4. Listeners para el Modal (Cancelación)
+            // 4. Listeners para el Modal
             const modalCancelBtn = document.getElementById('modal-cancel-btn');
             if (modalCancelBtn) {
                 modalCancelBtn.addEventListener('click', window.closeModal);
@@ -927,6 +955,18 @@
             const orderForm = document.getElementById('order-form');
             if (orderForm) {
                 orderForm.addEventListener('submit', window.saveOrder);
+            }
+            
+            // 7. Listener de Botón de Confirmación del Modal
+            const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+            if (modalConfirmBtn) {
+                modalConfirmBtn.addEventListener('click', () => {
+                    if (window.confirmAction) {
+                        window.confirmAction();
+                    } else {
+                        window.closeModal();
+                    }
+                });
             }
         });
     </script>
