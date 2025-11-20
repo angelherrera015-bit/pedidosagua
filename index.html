@@ -12,7 +12,7 @@
             signInAnonymously, 
             signInWithCustomToken, 
             onAuthStateChanged,
-            signOut // Importa signOut para cerrar sesión
+            signOut 
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { 
@@ -78,9 +78,10 @@
         const PRICE_DOMICILIO = 10.00;
         const PRICE_FISICA = 9.00;
         
-        // Variables de estado local, expuestas a window para que los listeners externos puedan acceder
+        // Variables de estado local
+        // **NUEVO:** Cargar el rol desde localStorage al inicio para persistencia
+        window.currentUserRole = localStorage.getItem('currentUserRole'); 
         window.currentUserId = null;
-        window.currentUserRole = null;
         window.unsubscribeOrders = null; 
 
         // Inicialización de Firebase
@@ -171,7 +172,8 @@
             if (user) {
                 window.currentUserId = user.uid;
 
-                if (window.currentUserRole) {
+                // Si el usuario existe Y ya tenemos un rol guardado (por localStorage o por login)
+                if (window.currentUserRole) { 
                     document.getElementById('welcome-message').textContent = `¡Bienvenido, ${window.currentUserRole}!`;
                     document.getElementById('user-info').textContent = `Usuario: ${window.currentUserRole} | ID de Sesión: ${window.currentUserId.substring(0, 8)}...`;
                     
@@ -182,6 +184,7 @@
                     }
                     showView('main');
                 } else {
+                    // Hay un usuario de Firebase (anónimo), pero el rol no se ha establecido.
                     showView('login');
                 }
             } else {
@@ -200,12 +203,15 @@
                 return;
             }
             
-            // CORRECCIÓN: Usar el valor tal cual lo ingresó el usuario para que coincida con la clave del objeto.
+            // Usar el valor tal cual lo ingresó el usuario para que coincida con la clave del objeto.
             const user = document.getElementById('login-user').value.trim(); 
             const pass = document.getElementById('login-pass').value;
 
             if (window.USER_PROFILES[user] === pass) { 
                 window.currentUserRole = user; 
+                
+                // **NUEVO:** Guardar el rol en el almacenamiento local para persistencia
+                localStorage.setItem('currentUserRole', user); 
                 
                 if(window.auth.currentUser) {
                     document.getElementById('welcome-message').textContent = `¡Bienvenido, ${window.currentUserRole}!`;
@@ -235,6 +241,10 @@
                     window.unsubscribeOrders = null;
                 }
                 await signOut(window.auth);
+                
+                // **NUEVO:** Limpiar el rol guardado en localStorage
+                localStorage.removeItem('currentUserRole'); 
+                
                 window.currentUserRole = null;
                 window.currentUserId = null;
                 showView('login');
@@ -874,4 +884,129 @@
                     Menú Principal
                 </button>
                 <button onclick="exportToCSV()" 
-                        id
+                        id="export-csv-btn"
+                        class="px-4 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 transition"
+                        style="display: none;">
+                    Descargar CSV
+                </button>
+            </div>
+        </header>
+        
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-teal-100 p-4 rounded-xl mb-6 shadow-md">
+            <div class="flex items-center space-x-3 mb-4 sm:mb-0">
+                <label for="date-filter-start" class="font-semibold text-teal-800">Desde:</label>
+                <input type="date" id="date-filter-start" 
+                        class="p-2 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500">
+
+                <label for="date-filter-end" class="font-semibold text-teal-800">Hasta:</label>
+                <input type="date" id="date-filter-end" 
+                        class="p-2 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500">
+            </div>
+            <p id="daily-sales-total" class="text-xl font-extrabold text-teal-900 bg-teal-200 px-4 py-2 rounded-lg">
+                Venta Total del Periodo: Q.0.00 
+            </p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-lg overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-teal-50">
+                    <tr>
+                        <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Hora</th>
+                        <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Cliente (Teléfono)</th>
+                        <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Dirección</th>
+                        <th class="p-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Cant.</th>
+                        <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Tipo</th>
+                        <th class="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">NIT</th>
+                        <th class="p-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Total</th>
+                        <th class="p-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Entregado</th>
+                        <th class="p-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="order-list" class="bg-white divide-y divide-gray-200">
+                    <tr><td colspan="9" class="text-center p-8 text-gray-500">Cargando pedidos...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        // --- Conexión de Event Listeners al cargar el DOM ---
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // 1. FORMULARIO DE LOGIN (Conectado al evento submit del formulario)
+            const loginForm = document.getElementById('login-form');
+            if (loginForm && window.login) {
+                loginForm.addEventListener('submit', (e) => { 
+                    e.preventDefault();
+                    window.login();
+                });
+            }
+
+            // 2. Botón de Ver Historial de Pedidos
+            const viewHistoryBtn = document.getElementById('view-history-btn');
+            if (viewHistoryBtn && window.openControlPanel) {
+                viewHistoryBtn.addEventListener('click', window.openControlPanel);
+            }
+            
+            // 3. Botón de Cerrar Sesión
+            const logoutBtn = document.getElementById('logout-btn');
+            if (logoutBtn && window.logout) {
+                logoutBtn.addEventListener('click', window.logout);
+            }
+
+            // 4. Botones de Tipo de Pedido (Menú Principal)
+            const orderDomicilioBtn = document.getElementById('order-domicilio-btn');
+            if (orderDomicilioBtn && window.startOrder) {
+                orderDomicilioBtn.addEventListener('click', () => {
+                    window.startOrder('DOMICILIO');
+                });
+            }
+
+            const orderFisicaBtn = document.getElementById('order-fisica-btn');
+            if (orderFisicaBtn && window.startOrder) {
+                orderFisicaBtn.addEventListener('click', () => {
+                    window.startOrder('FISICA');
+                });
+            }
+            
+            // 5. Listeners para el Modal
+            const modalCancelBtn = document.getElementById('modal-cancel-btn');
+            if (modalCancelBtn) {
+                modalCancelBtn.addEventListener('click', window.closeModal);
+            }
+            const modalCloseBtn = document.getElementById('modal-close-btn');
+            if (modalCloseBtn) {
+                modalCloseBtn.addEventListener('click', window.closeModal);
+            }
+
+            // 6. Listener para limpiar el listener del panel al volver al menú principal
+            document.querySelectorAll('[onclick="showView(\'main\')"]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    if (window.unsubscribeOrders) {
+                        window.unsubscribeOrders();  
+                        window.unsubscribeOrders = null;
+                    }
+                });
+            });
+            
+            // 7. Listener para el formulario de pedido
+            const orderForm = document.getElementById('order-form');
+            if (orderForm) {
+                orderForm.addEventListener('submit', window.saveOrder);
+            }
+            
+            // 8. Listener de Botón de Confirmación del Modal
+            const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+            if (modalConfirmBtn) {
+                modalConfirmBtn.addEventListener('click', () => {
+                    if (window.confirmAction) {
+                        window.confirmAction();
+                    } else {
+                        window.closeModal();
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
