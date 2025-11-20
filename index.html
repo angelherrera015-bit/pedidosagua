@@ -6,6 +6,7 @@
     <title>AGUA CRISTAL ZONA 6 - Registro de Pedidos</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
+        // Importaciones de Firebase consolidadas y limpias
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { 
             getAuth, 
@@ -26,9 +27,9 @@
             where, 
             getDocs,
             Timestamp,
-            writeBatch 
+            writeBatch,
+            setLogLevel // setLogLevel consolidado aquí
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // --- Variables Globales (Disponibles solo en este módulo) ---
         
@@ -40,7 +41,7 @@
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         
         // ******************************************************************************
-        // * INSTRUCCIÓN IMPORTANTE: PEGAR CONFIGURACIÓN DE FIREBASE AQUÍ.              *
+        // * INSTRUCCIÓN IMPORTANTE: PEGAR CONFIGURACIÓN DE FIREBASE AQUÍ.              *
         // * Reemplace el contenido de este objeto con su configuración de Firebase real. *
         // ******************************************************************************
         const FIREBASE_CONFIG_FALLBACK = {
@@ -108,8 +109,9 @@
         const phoneInput = document.getElementById('client-phone');
         const quantityInput = document.getElementById('quantity');
         
-        window.currentOrderType = ''; 
-        window.currentEditingOrderId = null; 
+        // Variables de estado locales para un manejo más limpio
+        let currentOrderType = ''; 
+        let currentEditingOrderId = null; 
         
         const showView = (viewName) => {
             Object.values(views).forEach(view => {
@@ -195,9 +197,10 @@
                 return;
             }
             
-            const user = document.getElementById('login-user').value;
+            const user = document.getElementById('login-user').value.toUpperCase().trim();
             const pass = document.getElementById('login-pass').value;
 
+            // La clave de la seguridad es verificar que 'user' coincida exactamente con la key del objeto
             if (window.USER_PROFILES[user] === pass) {
                 window.currentUserRole = user; 
                 
@@ -222,8 +225,8 @@
         };
 
         window.startOrder = (type) => {
-            window.currentOrderType = type;
-            window.currentEditingOrderId = null;
+            currentOrderType = type; // Usa variable local
+            currentEditingOrderId = null; // Usa variable local
             document.getElementById('form-title').textContent = `NUEVO PEDIDO ${type === 'DOMICILIO' ? 'A DOMICILIO (Q.10.00)' : 'ENTREGA FÍSICA (Q.9.00)'}`;
             orderForm.reset();
             document.getElementById('quantity').value = 1; 
@@ -234,7 +237,7 @@
 
         window.updateTotal = () => {
             const quantity = parseInt(quantityInput.value) || 0;
-            let price = window.currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
+            let price = currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
             const total = (quantity * price).toFixed(2);
             document.getElementById('order-total').textContent = `Total: Q.${total}`;
             window.updateWhatsAppButton();
@@ -244,7 +247,7 @@
             const phone = phoneInput.value.trim();
             const name = document.getElementById('client-name').value.trim();
             const quantity = parseInt(quantityInput.value) || 0;
-            const total = (quantity * (window.currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA));
+            const total = (quantity * (currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA));
             const address = document.getElementById('client-address').value.trim();
             const waButton = document.getElementById('whatsapp-form-btn');
 
@@ -293,9 +296,9 @@
             await window.saveClient(phone, name, nit, address); 
 
             const now = Timestamp.now();
-            const price = window.currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
+            const price = currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
             const total = (quantity * price);
-            const isEditing = !!window.currentEditingOrderId;
+            const isEditing = !!currentEditingOrderId; // Usa variable local
 
             const orderData = {
                 phone,
@@ -303,18 +306,18 @@
                 quantity,
                 nit: nit || 'CF',
                 address,
-                type: window.currentOrderType,
+                type: currentOrderType, // Usa variable local
                 pricePerJug: price,
                 total: total,
                 timestamp: now,
                 date: new Date(now.toDate()).toISOString().split('T')[0], 
-                isDelivered: window.currentOrderType === 'DOMICILIO' ? false : true, 
+                isDelivered: currentOrderType === 'DOMICILIO' ? false : true, 
                 registeredBy: window.currentUserRole
             };
 
             try {
                 if (isEditing) {
-                    await updateDoc(doc(getOrdersCollectionRef(), window.currentEditingOrderId), orderData);
+                    await updateDoc(doc(getOrdersCollectionRef(), currentEditingOrderId), orderData); // Usa variable local
                     window.showModal('Pedido Actualizado', 'El pedido ha sido actualizado correctamente.', false);
                 } else {
                     const newDocRef = await addDoc(getOrdersCollectionRef(), orderData);
@@ -325,7 +328,10 @@
                         'Pedido Registrado', 
                         `<p>Se ha registrado el pedido con ID: ${newDocRef.id.substring(0, 6)} por Q.${total.toFixed(2)}.</p><p class="mt-4 font-semibold">¿Desea enviar un mensaje de confirmación por WhatsApp?</p>`, 
                         false, 
-                        () => window.open(whatsappLink, '_blank'),
+                        () => {
+                            window.open(whatsappLink, '_blank');
+                            window.closeModal(); // Se cierra el modal después de la acción
+                        },
                         'Enviar WhatsApp'
                     );
                 }
@@ -403,9 +409,8 @@
             const row = document.createElement('tr');
             row.className = 'border-b hover:bg-teal-50/50';
             
-            const timestamp = order.timestamp && typeof order.timestamp.toDate === 'function' 
-                ? order.timestamp.toDate().toISOString() 
-                : new Date().toISOString(); 
+            // Uso de encadenamiento opcional para un manejo más seguro del timestamp
+            const timestamp = order.timestamp?.toDate ? order.timestamp.toDate().toISOString() : new Date().toISOString();
             
             row.setAttribute('data-id', id); 
             row.setAttribute('data-timestamp', timestamp); 
@@ -422,7 +427,6 @@
                 checkbox.type = 'checkbox';
                 checkbox.className = 'w-5 h-5 text-teal-600 bg-gray-100 border-gray-300 rounded focus:ring-teal-500';
                 checkbox.checked = order.isDelivered;
-                // PERMISO: Cualquier usuario logueado puede marcar/desmarcar
                 checkbox.disabled = false; 
 
                 checkbox.addEventListener('change', () => window.toggleDeliveredStatus(id, checkbox.checked));
@@ -435,7 +439,7 @@
             const tdActions = document.createElement('td');
             tdActions.className = 'p-3 whitespace-nowrap text-right space-x-2';
             
-            if (isAdmin) {
+            if (isAdmin) { // Si el rol es Administrador, se crean los botones.
                 const editBtn = document.createElement('button');
                 editBtn.className = 'text-blue-600 hover:text-blue-800 font-medium text-xs p-1 rounded-full hover:bg-blue-100 transition';
                 editBtn.innerHTML = '<svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-7-3l2.828-2.828a1 1 0 011.414 0L19 11m-9 9h.01M15 5v.01"></path></svg>';
@@ -471,8 +475,8 @@
 
         window.editOrder = (id, order) => {
             if (window.currentUserRole !== 'ADMINISTRADOR') return;
-            window.currentEditingOrderId = id;
-            window.currentOrderType = order.type;
+            currentEditingOrderId = id; // Usa variable local
+            currentOrderType = order.type; // Usa variable local
             
             document.getElementById('form-title').textContent = `EDITAR PEDIDO #${id.substring(0, 6)} (${order.type === 'DOMICILIO' ? 'Q.10.00' : 'Q.9.00'})`;
             document.getElementById('client-phone').value = order.phone;
@@ -488,18 +492,16 @@
         window.deleteOrder = async (id, name) => {
             if (window.currentUserRole !== 'ADMINISTRADOR') return;
 
-            // CORRECCIÓN FINAL: Pasar referencias de Firebase para garantizar el alcance
             const ordersRef = getOrdersCollectionRef();
-            const dbRef = window.db;
+            const dbRef = window.db; // Mantenemos esta referencia aunque no se use directamente
 
             const deleteDocFunc = async () => {
                 try {
-                    // Usamos las referencias pasadas para garantizar el acceso
                     await deleteDoc(doc(ordersRef, id)); 
                     window.showModal('Eliminado', 'El pedido ha sido eliminado correctamente.', false);
+                    window.closeModal(); // Cerrar el modal después de la acción
                 } catch (e) {
                     console.error("Error al eliminar pedido:", e);
-                    // Si el error es de permisos (aunque seamos admin), recargamos
                     if (e.code === 'permission-denied') {
                          window.showModal('Error de Permisos', 'Fallo al eliminar: Permiso denegado. Recargue y vuelva a intentar.', true);
                     } else {
@@ -512,7 +514,6 @@
         };
 
         window.toggleDeliveredStatus = async (id, isDelivered) => {
-            // Permitimos la ejecución para CUALQUIER usuario logueado
             if (!window.currentUserRole) return; 
             try {
                 await updateDoc(doc(getOrdersCollectionRef(), id), { isDelivered });
@@ -530,8 +531,8 @@
                 let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
                 data.sort((a, b) => {
-                    const timeA = a.timestamp && typeof a.timestamp.toDate === 'function' ? a.timestamp.toDate() : new Date(0);
-                    const timeB = b.timestamp && typeof b.timestamp.toDate === 'function' ? b.timestamp.toDate() : new Date(0);
+                    const timeA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(0);
+                    const timeB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(0);
                     return timeB - timeA; 
                 });
 
@@ -596,7 +597,6 @@
 
         phoneInput.addEventListener('input', async () => {
             updateOnInput();
-            // Lógica de autocompletado (mantener la búsqueda de clientes)
             const phone = phoneInput.value.trim();
             if (phone.length >= 8) { 
                 try {
@@ -613,7 +613,8 @@
                         document.getElementById('autofill-status').classList.remove('text-red-500', 'text-teal-500');
                         document.getElementById('autofill-status').classList.add('text-green-500');
                     } else {
-                        if (document.getElementById('client-name').value || document.getElementById('client-nit').value || document.getElementById('client-address').value) {
+                        // Limpiamos los campos solo si no contienen datos ya ingresados
+                        if (!document.getElementById('client-name').value && !document.getElementById('client-nit').value && !document.getElementById('client-address').value) {
                              document.getElementById('client-name').value = '';
                              document.getElementById('client-nit').value = '';
                              document.getElementById('client-address').value = '';
@@ -635,13 +636,14 @@
 
         document.getElementById('client-name').addEventListener('input', updateOnInput);
         document.getElementById('client-address').addEventListener('input', updateOnInput);
+        document.getElementById('quantity').addEventListener('input', window.updateTotal); // Añadimos listener de cantidad
 
         // Listener para el filtro de fecha
         document.getElementById('date-filter').addEventListener('change', () => {
             window.loadOrdersRealtime(); 
         });
-
-        window.handleAuth();
+        
+        // Se ha ELIMINADO la llamada a window.handleAuth();
     </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
@@ -704,18 +706,21 @@
         <div class="container-card text-center">
             <h1 class="text-3xl font-extrabold text-teal-700 mb-6">AGUA CRISTAL ZONA 6</h1>
             <p class="text-gray-500 mb-8">Ingresa tus credenciales</p>
-            <div class="space-y-4">
-                <input type="text" id="login-user" placeholder="Usuario (ADMINISTRADOR o USUARIO 1)" 
+            
+            <form id="login-form">
+                <div class="space-y-4">
+                    <input type="text" id="login-user" placeholder="Usuario (ADMINISTRADOR o USUARIO 1)"  
                         class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
                         required>
-                <input type="password" id="login-pass" placeholder="Contraseña" 
+                    <input type="password" id="login-pass" placeholder="Contraseña"  
                         class="w-full p-3 mt-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
                         required>
-                <button id="login-btn" 
+                    <button type="submit" id="login-btn"  
                         class="w-full bg-teal-500 text-white p-3 rounded-lg font-bold text-lg teal-button">
-                    INICIAR SESIÓN
-                </button>
-            </div>
+                        INICIAR SESIÓN
+                    </button>
+                </div>
+            </form>
             <p class="text-xs text-gray-400 mt-4">Introduce tu usuario y contraseña.</p>
         </div>
     </div>
@@ -725,21 +730,27 @@
             <h1 class="4xl font-extrabold text-teal-700 mb-2">AGUA CRISTAL ZONA 6</h1>
             <p id="welcome-message" class="text-xl text-teal-600 font-semibold mb-4">¡Bienvenido!</p>
             <p id="user-info" class="text-xs text-gray-500 mb-6"></p>
+            
             <button id="view-history-btn"
-                    class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition">
-                Ver Historial de Pedidos
+                    class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition flex items-center justify-center space-x-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span>Ver Historial de Pedidos</span>
             </button>
         </header>
 
         <main class="w-full max-w-lg space-y-6">
             <h2 class="text-2xl font-bold text-center text-teal-700">REGISTRAR NUEVO PEDIDO</h2>
+            
             <button id="order-domicilio-btn" data-type="DOMICILIO"
-                    class="w-full h-32 bg-teal-500 text-white text-2xl font-extrabold rounded-xl shadow-lg teal-button flex items-center justify-center">
-                A DOMICILIO (Q.10.00/Garrafón)
+                    class="w-full h-32 bg-teal-500 text-white text-2xl font-extrabold rounded-xl shadow-lg teal-button flex items-center justify-center space-x-3">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                <span>A DOMICILIO (Q.10.00/Garrafón)</span>
             </button>
+            
             <button id="order-fisica-btn" data-type="FISICA"
-                    class="w-full h-32 bg-teal-700 text-white text-2xl font-extrabold rounded-xl shadow-lg teal-button flex items-center justify-center">
-                ENTREGA FÍSICA (Q.9.00/Garrafón)
+                    class="w-full h-32 bg-teal-700 text-white text-2xl font-extrabold rounded-xl shadow-lg teal-button flex items-center justify-center space-x-3">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path></svg>
+                <span>ENTREGA FÍSICA (Q.9.00/Garrafón)</span>
             </button>
         </main>
     </div>
@@ -781,8 +792,8 @@
                 <div>
                     <label for="client-address" class="block text-sm font-medium text-gray-700">Dirección *</label>
                     <textarea id="client-address" name="address" rows="3" required 
-                                 class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
-                                 placeholder="Calle, Número, Zona, Referencias."></textarea>
+                                class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
+                                placeholder="Calle, Número, Zona, Referencias."></textarea>
                 </div>
 
                 <button type="button" id="whatsapp-form-btn" style="display: none;"
@@ -860,10 +871,15 @@
     <script>
         // --- Conexión de Event Listeners al cargar el DOM ---
         document.addEventListener('DOMContentLoaded', () => {
-            // 1. Botón de Login
-            const loginBtn = document.getElementById('login-btn');
-            if (loginBtn && window.login) {
-                loginBtn.addEventListener('click', window.login);
+            
+            // 1. FORMULARIO DE LOGIN (MODIFICADO)
+            const loginForm = document.getElementById('login-form');
+            if (loginForm && window.login) {
+                // Escucha el evento 'submit' del formulario (incluye presionar Enter)
+                loginForm.addEventListener('submit', (e) => { 
+                    e.preventDefault(); // Previene el envío por defecto del formulario
+                    window.login();
+                });
             }
 
             // 2. Botón de Ver Historial de Pedidos
@@ -901,13 +917,13 @@
             document.querySelectorAll('[onclick="showView(\'main\')"]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     if (window.unsubscribeOrders) {
-                        window.unsubscribeOrders(); 
+                        window.unsubscribeOrders();  
                         window.unsubscribeOrders = null;
                     }
                 });
             });
             
-             // 6. Listener para el formulario de pedido
+            // 6. Listener para el formulario de pedido
             const orderForm = document.getElementById('order-form');
             if (orderForm) {
                 orderForm.addEventListener('submit', window.saveOrder);
