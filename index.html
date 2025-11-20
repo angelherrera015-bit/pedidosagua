@@ -7,13 +7,14 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
         // Importaciones de Firebase consolidadas y limpias
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { 
             getAuth, 
             signInAnonymously, 
             signInWithCustomToken, 
-            onAuthStateChanged 
+            onAuthStateChanged,
+            signOut // AÑADIDO: Importa signOut para cerrar sesión
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { 
             getFirestore, 
             doc, 
@@ -166,6 +167,9 @@
         // Escucha el estado de autenticación (usa window.auth)
         onAuthStateChanged(window.auth, (user) => {
             document.getElementById('loading-message').style.display = 'none';
+            
+            // SE ELIMINÓ LA LÓGICA DEL SPLASH SCREEN
+
             if (user) {
                 window.currentUserId = user.uid;
 
@@ -191,16 +195,17 @@
         
         // --- FUNCIONES CENTRALES (Expuestas globalmente para el último script) ---
 
+        // SOLUCIÓN CRÍTICA DE LOGIN
         window.login = async () => {
             if (!window.auth) {
                 window.showModal('Error Crítico', 'La aplicación no se inicializó. Recargue la página o revise la configuración de Firebase.', true);
                 return;
             }
             
-            const user = document.getElementById('login-user').value.toUpperCase().trim(); // Importante: Mayúsculas
+            // CORRECCIÓN: Usar el valor tal cual lo ingresó el usuario para que coincida con la clave del objeto.
+            const user = document.getElementById('login-user').value.trim(); 
             const pass = document.getElementById('login-pass').value;
 
-            // Verifica la credencial contra el objeto hardcodeado
             if (window.USER_PROFILES[user] === pass) { 
                 window.currentUserRole = user; 
                 
@@ -208,7 +213,6 @@
                     document.getElementById('welcome-message').textContent = `¡Bienvenido, ${window.currentUserRole}!`;
                     document.getElementById('user-info').textContent = `Usuario: ${window.currentUserRole} | ID de Sesión: ${window.auth.currentUser.uid.substring(0, 8)}...`;
                     
-                    // Control de visibilidad para botones de administrador
                     const adminButton = document.getElementById('export-csv-btn');
                     const isAdmin = window.currentUserRole === 'ADMINISTRADOR';
                     if (adminButton) {
@@ -224,6 +228,25 @@
                 window.showModal('Credenciales Incorrectas', 'El nombre de usuario o la contraseña no son válidos.', true);
             }
         };
+
+        // NUEVO: Función para cerrar sesión
+        window.logout = async () => {
+            try {
+                if (window.unsubscribeOrders) {
+                    window.unsubscribeOrders();
+                    window.unsubscribeOrders = null;
+                }
+                await signOut(window.auth);
+                window.currentUserRole = null;
+                window.currentUserId = null;
+                showView('login');
+                window.showModal('Sesión Cerrada', 'Has cerrado tu sesión exitosamente.', false);
+            } catch (error) {
+                console.error("Error al cerrar sesión:", error);
+                window.showModal('Error al Cerrar Sesión', 'No se pudo cerrar la sesión: ' + error.message, true);
+            }
+        };
+
 
         window.startOrder = (type) => {
             currentOrderType = type; // Usa variable local
@@ -241,7 +264,7 @@
             let price = currentOrderType === 'DOMICILIO' ? PRICE_DOMICILIO : PRICE_FISICA;
             const total = (quantity * price).toFixed(2);
             document.getElementById('order-total').textContent = `Total: Q.${total}`;
-        }; // Se eliminó la llamada a updateWhatsAppButton
+        }; 
 
         window.saveClient = async (phone, name, nit, address) => {
             const clientData = { phone, name, nit: nit || '', address: address || '' };
@@ -259,7 +282,7 @@
             return `https://wa.me/502${phoneInput.value.trim()}?text=${encodeURIComponent(message)}`;
         };
 
-        // MODIFICACIÓN CRÍTICA: Envío de WhatsApp Automático
+        // Envío de WhatsApp Automático
         window.saveOrder = async (e) => {
             e.preventDefault();
             
@@ -331,7 +354,7 @@
             }
         };
 
-        // CORRECCIÓN FINAL: Asegura la visibilidad del botón de CSV (Admin)
+        // Asegura la visibilidad del botón de CSV (Admin)
         window.openControlPanel = () => {
             if (window.unsubscribeOrders) {
                 window.unsubscribeOrders();
@@ -669,7 +692,8 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f0fdfa; /* Teal 50 */
+            background-color: #f0fdfa; /* Teal 50 - Fondo Suave */
+            transition: background-color 0.3s ease; /* Transición para sensación dinámica */
         }
         .container-card {
             background-color: white;
@@ -678,13 +702,15 @@
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
             max-width: 95%;
             width: 500px;
+            transition: all 0.3s ease;
         }
         .teal-button {
             transition: all 0.2s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Sombra estándar */
         }
         .teal-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+            transform: translateY(-2px); /* Efecto 3D al pasar el mouse */
+            box-shadow: 0 6px 10px rgba(0, 0, 0, 0.15); /* Sombra más fuerte al hover */
         }
         /* Estilo para el panel de control grande */
         #control-panel-view {
@@ -692,6 +718,10 @@
             max-width: 1200px;
             height: auto;
             min-height: 100vh;
+        }
+        /* Añade una transición a los elementos que cambian de color */
+        .hover\:bg-teal-50\/50:hover {
+            background-color: rgba(204, 251, 241, 0.5); /* Color Teal suave */
         }
     </style>
 </head>
@@ -751,8 +781,14 @@
             <p id="welcome-message" class="text-xl text-teal-600 font-semibold mb-4">¡Bienvenido!</p>
             <p id="user-info" class="text-xs text-gray-500 mb-6"></p>
             
+            <button id="logout-btn"
+                    class="bg-red-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-600 transition mb-4 inline-flex items-center justify-center space-x-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                <span>Cerrar Sesión</span>
+            </button>
+            
             <button id="view-history-btn"
-                    class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition flex items-center justify-center space-x-2">
+                    class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition inline-flex items-center justify-center space-x-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 <span>Ver Historial de Pedidos</span>
             </button>
@@ -815,6 +851,7 @@
                                 class="w-full p-3 mt-1 border border-teal-300 rounded-lg focus:ring-teal-500 focus:border-teal-500" 
                                 placeholder="Calle, Número, Zona, Referencias."></textarea>
                 </div>
+
                 <div class="flex justify-end items-center pt-4">
                     <span id="order-total" class="text-2xl font-extrabold text-teal-800 mr-4">Total: Q.0.00</span>
                     <button type="submit" 
@@ -902,8 +939,14 @@
             if (viewHistoryBtn && window.openControlPanel) {
                 viewHistoryBtn.addEventListener('click', window.openControlPanel);
             }
+            
+            // 3. Botón de Cerrar Sesión
+            const logoutBtn = document.getElementById('logout-btn');
+            if (logoutBtn && window.logout) {
+                logoutBtn.addEventListener('click', window.logout);
+            }
 
-            // 3. Botones de Tipo de Pedido (Menú Principal)
+            // 4. Botones de Tipo de Pedido (Menú Principal)
             const orderDomicilioBtn = document.getElementById('order-domicilio-btn');
             if (orderDomicilioBtn && window.startOrder) {
                 orderDomicilioBtn.addEventListener('click', () => {
@@ -918,7 +961,7 @@
                 });
             }
             
-            // 4. Listeners para el Modal
+            // 5. Listeners para el Modal
             const modalCancelBtn = document.getElementById('modal-cancel-btn');
             if (modalCancelBtn) {
                 modalCancelBtn.addEventListener('click', window.closeModal);
@@ -928,7 +971,7 @@
                 modalCloseBtn.addEventListener('click', window.closeModal);
             }
 
-            // 5. Listener para limpiar el listener del panel al volver al menú principal
+            // 6. Listener para limpiar el listener del panel al volver al menú principal
             document.querySelectorAll('[onclick="showView(\'main\')"]').forEach(btn => {
                 btn.addEventListener('click', () => {
                     if (window.unsubscribeOrders) {
@@ -938,13 +981,13 @@
                 });
             });
             
-            // 6. Listener para el formulario de pedido
+            // 7. Listener para el formulario de pedido
             const orderForm = document.getElementById('order-form');
             if (orderForm) {
                 orderForm.addEventListener('submit', window.saveOrder);
             }
             
-            // 7. Listener de Botón de Confirmación del Modal
+            // 8. Listener de Botón de Confirmación del Modal
             const modalConfirmBtn = document.getElementById('modal-confirm-btn');
             if (modalConfirmBtn) {
                 modalConfirmBtn.addEventListener('click', () => {
@@ -955,14 +998,6 @@
                     }
                 });
             }
-            
-            // 8. Listener para los filtros de fecha (Rango de Fechas)
-            document.getElementById('date-filter-start').addEventListener('change', () => {
-                window.loadOrdersRealtime(); 
-            });
-            document.getElementById('date-filter-end').addEventListener('change', () => {
-                window.loadOrdersRealtime(); 
-            });
         });
     </script>
 </body>
